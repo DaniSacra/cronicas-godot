@@ -1,0 +1,14 @@
+{
+  "scene": "tumulo_vazio",
+  "lines": [
+    {"id": "n01", "speaker": "narrador", "text": "Atrás do Sineiro, uma parede arrombada."},
+    {"id": "n02", "speaker": "narrador", "text": "Sobre o buraco, um leão de pé entalhado na pedra, rachado de cima a baixo."},
+    {"id": "n03", "speaker": "narrador", "text": "A tampa do túmulo foi arrancada. Dentro, nada. No chão, marcas de arrasto."},
+    {"id": "n04", "speaker": "narrador", "text": "Nos quatro cantos, quatro espadas erguidas. Sob o leão partido, um único nicho. Vazio."},
+    {"id": "l01", "speaker": "lyra", "expr": "preocupado", "text": "Arrombaram a tampa. E arrastaram alguma coisa para fora."},
+    {"id": "l02", "speaker": "teo", "expr": "preocupado", "text": "Essas quatro espadas são de guardiões. E sob o leão havia uma coisa só."},
+    {"id": "l03", "speaker": "andilla", "text": "E alguém levou. Não fui eu, antes que alguém olhe para mim."},
+    {"id": "l04", "speaker": "aldo", "expr": "bravo", "text": "Chegamos tarde."},
+    {"id": "l05", "speaker": "lyra", "text": "{aldo} ficou quieto. Quando {aldo} fica quieto assim, é raiva.", "do": ["set:tumulo_visto"]}
+  ]
+}

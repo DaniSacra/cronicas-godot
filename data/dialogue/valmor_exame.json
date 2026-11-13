@@ -1,0 +1,22 @@
+{
+  "scene": "valmor_exame",
+  "lines": [
+    {"id": "antes_aldo", "speaker": "aldo", "text": "Era para descer de manhã. O sino não quis esperar.",
+     "if": ["!flag:sineiro_morto", "!flag:exame_antes_aldo"], "do": ["set:exame_antes_aldo"], "next": "end"},
+    {"id": "antes_andilla", "speaker": "andilla", "text": "Vila pequena, porta trancada cedo. Gente com medo dorme mal.",
+     "if": ["!flag:sineiro_morto", "!flag:exame_antes_andilla"], "do": ["set:exame_antes_andilla"], "next": "end"},
+    {"id": "antes_teo", "speaker": "teo", "expr": "preocupado", "text": "As janelas estão acesas. Ninguém dorme enquanto o sino toca.",
+     "if": ["!flag:sineiro_morto", "!flag:exame_antes_teo"], "do": ["set:exame_antes_teo"], "next": "end"},
+    {"id": "antes_lyra", "speaker": "lyra", "expr": "alegre", "text": "Dizem que tem uma fonte de luz lá embaixo. Eu vim de longe para ver.",
+     "if": ["!flag:sineiro_morto", "!flag:exame_antes_lyra"], "do": ["set:exame_antes_lyra"], "next": "end"},
+
+    {"id": "depois_teo", "speaker": "teo", "text": "Escutem. Nada.",
+     "if": ["flag:sineiro_morto", "!flag:exame_depois_teo"], "do": ["set:exame_depois_teo"], "next": "end"},
+    {"id": "depois_andilla", "speaker": "andilla", "expr": "alegre", "text": "Silêncio de graça. Aceito.",
+     "if": ["flag:sineiro_morto", "!flag:exame_depois_andilla"], "do": ["set:exame_depois_andilla"], "next": "end"},
+    {"id": "depois_lyra", "speaker": "lyra", "text": "Ninguém apagou a luz. A vila ainda não acredita no silêncio.",
+     "if": ["flag:sineiro_morto", "!flag:exame_depois_lyra"], "do": ["set:exame_depois_lyra"], "next": "end"},
+    {"id": "depois_aldo", "speaker": "aldo", "text": "Amanhã alguém vai ter de contar isso ao velho.",
+     "if": ["flag:sineiro_morto", "!flag:exame_depois_aldo"], "do": ["set:exame_depois_aldo"], "next": "end"}
+  ]
+}

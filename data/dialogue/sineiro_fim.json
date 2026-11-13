@@ -1,0 +1,8 @@
+{
+  "scene": "sineiro_fim",
+  "lines": [
+    {"id": "n01", "speaker": "narrador", "text": "O Sineiro cambaleia. O sino pesa na mão dele."},
+    {"id": "l01", "speaker": "sineiro", "text": "Ele prometeu... que o rei traria os fiéis de volta..."},
+    {"id": "n02", "speaker": "narrador", "text": "O Sineiro desaba. O sino rola pelas pedras, toca uma última vez e se cala.", "do": ["emit:sineiro_cai"]}
+  ]
+}

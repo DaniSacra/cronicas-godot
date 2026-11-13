@@ -1,0 +1,9 @@
+{
+  "aldo":     {"name": "{aldo}",  "side": "left",  "color": "#ffcf6b", "portrait": true},
+  "lyra":     {"name": "Lyra",    "side": "left",  "color": "#c79bff", "portrait": true},
+  "teo":      {"name": "Teo",     "side": "left",  "color": "#8fe3a0", "portrait": true},
+  "andilla":  {"name": "Andilla", "side": "left",  "color": "#9fd8ff", "portrait": true},
+  "sineiro":  {"name": "O Sineiro", "side": "right", "color": "#c9b27a", "portrait": false},
+  "narrador": {"name": "", "portrait": false},
+  "cartao":   {"name": "", "portrait": false, "card": true}
+}

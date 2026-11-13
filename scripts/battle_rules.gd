@@ -13,7 +13,7 @@ const HEROES := {
 	"lyra": {"name": "Lyra", "cls": "Maga", "color": "#d070e0", "energy": false,
 		"base": {"hp": 30, "mp": 20, "atk": 6, "def": 10, "res": 12, "mag": 12, "agi": 10},
 		"grow": {"hp": 5, "mp": 4, "atk": 1, "def": 2.5, "res": 3, "mag": 3, "agi": 1.2}, "skills": ["fogo", "gelo"]},
-	"teo": {"name": "Teo", "cls": "Clérigo", "color": "#60d0a0", "energy": false,
+	"teo": {"name": "Teo", "cls": "Aprendiz", "color": "#60d0a0", "energy": false,
 		"base": {"hp": 36, "mp": 16, "atk": 9, "def": 15, "res": 10, "mag": 9, "agi": 6},
 		"grow": {"hp": 7, "mp": 3, "atk": 2, "def": 3.75, "res": 3, "mag": 2, "agi": 1}, "skills": ["cura", "luz"]},
 	"andilla": {"name": "Andilla", "cls": "Ladina", "color": "#e05a5a", "energy": true,
@@ -25,20 +25,33 @@ const HEROES := {
 const SKILLS := {
 	"golpe": {"name": "Golpe Forte", "kind": "phys", "cost_kind": "en", "cost": 20, "power": 1.4, "target": "enemy"},
 	"golpeBaixo": {"name": "Passo das Sombras", "kind": "phys", "cost_kind": "en", "cost": 20, "power": 1.3, "pierce": true, "target": "enemy"},
-	"fogo": {"name": "Fogo", "kind": "mag", "cost_kind": "mp", "cost": 4, "power": 2.2, "base": 8, "target": "enemy"},
-	"gelo": {"name": "Gelo", "kind": "mag", "cost_kind": "mp", "cost": 8, "power": 1.4, "base": 6, "target": "enemy"},
+	"fogo": {"name": "Fogo", "kind": "mag", "cost_kind": "mp", "cost": 4, "power": 2.8, "base": 8, "target": "enemy"},
+	"gelo": {"name": "Gelo", "kind": "mag", "cost_kind": "mp", "cost": 8, "power": 1.4, "base": 6, "target": "enemy", "delay": true},
 	"cura": {"name": "Cura", "kind": "heal", "cost_kind": "mp", "cost": 3, "power": 2.0, "base": 20, "target": "ally"},
 	"luz": {"name": "Luz Sagrada", "kind": "holy", "cost_kind": "mp", "cost": 5, "power": 2.0, "base": 10, "target": "enemy"},
 }
 
-const ENERGY := {"max": 100, "start": 10, "attack": 15, "defend": 10, "hurt_aldo": 8}
+const ENERGY := {"max": 100, "start": 10, "attack": 15, "defend": 10, "hurt": 8}
 
 # O Sineiro (src/data.js)
 const SINEIRO := {"name": "O Sineiro", "hp": 900, "atk": 30, "def": 25, "res": 10, "agi": 11, "undead": true}
 
+const ORDER := ["aldo", "lyra", "teo", "andilla"]     # ordem fixa da rodada
+
+# Sorteios: a cena passa randf() (0 a 1) e a regra converte na faixa. "dmg" para golpes e magias de ataque,
+# "soft" para cura, combo, badalada e dobre.
+const ROLL := {"dmg": Vector2(0.88, 1.12), "soft": Vector2(0.9, 1.1)}
+
+static func roll(kind: String, r: float) -> float:
+	return lerpf(ROLL[kind].x, ROLL[kind].y, r)
+
 static func stat(hero_id: String, lv: int, key: String, bonus := 0) -> int:
 	var d: Dictionary = HEROES[hero_id]
 	return int(floor(d.base[key] + d.grow[key] * (lv - 1))) + bonus
+
+## Máximo de um atributo com o bônus de equipamento (`bonus` é {chave: valor}). Batalha e Game usam o mesmo.
+static func max_stat(hero_id: String, lv: int, key: String, bonus: Dictionary) -> int:
+	return stat(hero_id, lv, key, int(bonus.get(key, 0)))
 
 static func cut_pct(points: float) -> float:
 	var p := maxf(0.0, points)
@@ -53,6 +66,8 @@ static func phys_dmg(atk: float, def: float, power := 1.0, v := 1.0) -> int:
 static func mag_dmg(raw: float, res: float) -> int:
 	return maxi(1, roundi(raw * guard_cut(res)))
 
+const HOLY_UNDEAD := 1.5       # Luz Sagrada contra morto-vivo (era 2,0: a Luz era o maior dano do jogo)
+
 ## Dano de uma habilidade de ataque (phys, mag ou holy). `v` é o sorteio de 0.88 a 1.12.
 static func skill_damage(skill: Dictionary, atk: float, mag: float, target_def: float, target_res: float, target_undead: bool, v := 1.0) -> int:
 	match skill.kind:
@@ -61,24 +76,94 @@ static func skill_damage(skill: Dictionary, atk: float, mag: float, target_def: 
 		"mag", "holy":
 			var d := mag_dmg((mag * skill.power + skill.base) * v, target_res)
 			if skill.kind == "holy" and target_undead:
-				d *= 2
+				d = int(d * HOLY_UNDEAD)
 			return d
 	return 0
 
 static func heal_amount(skill: Dictionary, mag: float, v := 1.0) -> int:
 	return maxi(1, roundi((mag * skill.power + skill.base) * v))
 
-## O que o Sineiro faz no turno n (0, 1, 2...): golpe, badalada em todos ou dobre fúnebre que drena um.
-static func boss_move(turn: int, hp_frac: float) -> String:
-	var cycle := 3 if hp_frac < 0.4 else 4          # furioso, a badalada vem mais seguido
-	if turn % cycle == cycle - 1:
-		return "bell"
-	if turn % 4 == 1:
-		return "drain"
-	return "hit"
+# ---------- o Sineiro: ciclo de golpes e previsão ----------
+# Calmo: golpe, dobre, golpe, badalada. Furioso (abaixo de RAGE_FRAC): golpe, dobre, badalada, mais curto.
+const BOSS_CYCLE := ["hit", "drain", "hit", "bell"]
+const BOSS_CYCLE_RAGE := ["hit", "drain", "bell"]
+const RAGE_FRAC := 0.4
 
-static func boss_atk(base_atk: float, hp_frac: float) -> float:
-	return base_atk * (1.25 if hp_frac < 0.4 else 1.0)
+static func boss_move(step: int, enraged: bool) -> String:
+	var c: Array = BOSS_CYCLE_RAGE if enraged else BOSS_CYCLE
+	return c[step % c.size()]
+
+## Estado do chefe entre turnos: posição no ciclo e se já está furioso.
+## `frozen`: o Gelo tirou a próxima vez dele; `thawed`: acabou de descongelar e resiste ao frio por uma rodada.
+static func boss_state() -> Dictionary:
+	return {"step": 0, "enraged": false, "frozen": false, "thawed": false}
+
+## Gelo: o chefe perde a próxima vez e o golpe anunciado só vem depois (a previsão não muda). Não acumula, e logo
+## depois de descongelar ele resiste, para o Gelo não travar o chefe toda rodada. Devolve se congelou.
+static func can_freeze(state: Dictionary) -> bool:
+	return not state.frozen and not state.thawed
+
+static func freeze(state: Dictionary) -> bool:
+	if not can_freeze(state):
+		return false
+	state.frozen = true
+	return true
+
+## Turno do chefe: devolve o golpe já anunciado (o primeiro da previsão, que nunca muda depois de mostrado)
+## e avança o estado. Se a vida caiu abaixo de RAGE_FRAC, ele fica furioso e o ciclo novo começa do zero
+## no turno seguinte: a fúria só muda os ícones que vêm depois.
+static func boss_turn(state: Dictionary, hp_frac: float) -> String:
+	if state.frozen:                  # perde a vez: nem o ciclo nem a fúria andam, a previsão continua certa
+		state.frozen = false
+		state.thawed = true
+		return "frozen"
+	state.thawed = false
+	var move := boss_move(state.step, state.enraged)
+	if not state.enraged and hp_frac < RAGE_FRAC:
+		state.enraged = true
+		state.step = 0
+	else:
+		state.step += 1
+	return move
+
+const RAGE_MULT := 1.25          # furioso, todo golpe do chefe sai 25% mais forte
+const BELL_RAW := 20.0           # Badalada: dano mágico em todos
+const DRAIN_RAW := 24.0          # Dobre fúnebre: dano mágico em um, e o chefe se cura
+const DRAIN_HEAL := 1.0          # o dobre devolve ao chefe todo o dano que causa
+
+static func boss_atk(base_atk: float, enraged: bool) -> float:
+	return base_atk * (RAGE_MULT if enraged else 1.0)
+
+static func boss_hit_damage(def: float, enraged: bool, v := 1.0) -> int:
+	return phys_dmg(boss_atk(SINEIRO.atk, enraged), def, 1.0, v)
+
+static func bell_damage(res: float, enraged: bool, v := 1.0) -> int:
+	return mag_dmg(BELL_RAW * v * (RAGE_MULT if enraged else 1.0), res)
+
+static func drain_damage(res: float, v := 1.0) -> int:
+	return mag_dmg(DRAIN_RAW * v, res)
+
+static func drain_heal(dmg: int) -> int:
+	return int(dmg * DRAIN_HEAL)
+
+## Dano que o herói recebe de fato: defender corta pela metade.
+static func taken(dmg: int, defending: bool) -> int:
+	return maxi(1, dmg / 2) if defending else dmg
+
+## Energia depois de uma ação ("attack", "defend" ou "hurt"). Só Aldo e Andilla têm energia; apanhar só enche a do Aldo.
+static func energy_after(hero_id: String, en: int, reason: String) -> int:
+	if not HEROES[hero_id].energy or (reason == "hurt" and hero_id != "aldo"):
+		return en
+	return mini(ENERGY.max, en + int(ENERGY[reason]))
+
+const CHARGE_BONUS := 0.3        # dano extra com a carga cheia (segure confirm)
+
+static func charged(dmg: int, full: float) -> int:
+	return int(dmg * (1.0 + CHARGE_BONUS * full))
+
+## Ataque básico de um herói no Sineiro.
+static func attack_damage(atk: float, v := 1.0) -> int:
+	return phys_dmg(atk, SINEIRO.def, 1.0, v)
 
 static func can_pay(skill: Dictionary, mp: int, en: int) -> bool:
 	return (mp if skill.cost_kind == "mp" else en) >= skill.cost
@@ -91,8 +176,13 @@ const COMBOS := {
 	"escudo": {"name": "Escudo de Luz", "cost": 4, "members": ["teo", "lyra"], "heal": 0.4, "desc": "Cura o grupo e levanta a guarda de todos."},
 }
 
+const COMBO_FROM := {"attack": 1, "skill": 1, "defend": 1}   # pontos que cada tipo de ação dá
+
 static func combo_gain(points: int, amount := 1) -> int:
 	return clampi(points + amount, 0, COMBO_MAX)
+
+static func combo_points(action: String) -> int:
+	return int(COMBO_FROM.get(action, 0))
 
 static func combo_ready(id: String, points: int, alive: Array) -> bool:
 	var c: Dictionary = COMBOS[id]
@@ -105,9 +195,44 @@ static func combo_damage(atk_a: float, atk_b: float, target_def: float, v := 1.0
 static func combo_heal(hpmax: int) -> int:
 	return int(hpmax * float(COMBOS.escudo.heal))
 
-## Próximos golpes do chefe, para mostrar acima dele.
-static func boss_forecast(turn: int, hp_frac: float, n := 3) -> Array:
+## Próximos golpes do chefe, para mostrar acima dele. O primeiro é o que ele vai fazer de fato.
+static func boss_forecast(state: Dictionary, n := 3) -> Array:
 	var out := []
 	for i in n:
-		out.append(boss_move(turn + i, hp_frac))
+		out.append(boss_move(state.step + i, state.enraged))
 	return out
+
+# ---------- jogada automática (--auto e simulador) ----------
+const AUTO_SHIELD_BELOW := 0.6   # Escudo de Luz quando 2 ou mais estão abaixo disto
+const AUTO_HEAL_BELOW := 0.45    # Cura em quem está abaixo disto
+
+## Vivos na ordem da rodada. `party`: id -> {hp, hpmax, mp, en}.
+static func alive_ids(party: Dictionary) -> Array:
+	return ORDER.filter(func(id): return party.has(id) and party[id].hp > 0)
+
+## O que o herói `hid` faz no --auto: Escudo se 2 ou mais estão fracos, Corte Duplo sempre que dá,
+## Cura em quem está mal, a primeira técnica que dá para pagar, senão ataque.
+static func auto_choice(hid: String, party: Dictionary, combo: int, boss := {}) -> Dictionary:
+	var alive := alive_ids(party)
+	var below := func(f: float) -> Array: return alive.filter(func(id): return party[id].hp < party[id].hpmax * f)
+	if below.call(AUTO_SHIELD_BELOW).size() >= 2 and combo_ready("escudo", combo, alive):
+		return {"type": "combo", "id": "escudo"}
+	if combo_ready("corte", combo, alive):
+		return {"type": "combo", "id": "corte"}
+	var h: Dictionary = party[hid]
+	var hurt: Array = below.call(AUTO_HEAL_BELOW)
+	# Gelo só quando a próxima é a Badalada e o chefe pode congelar; fora isso, a primeira técnica que dá para pagar
+	var bell_next: bool = not boss.is_empty() and can_freeze(boss) and boss_forecast(boss)[0] == "bell"
+	for sid in HEROES[hid].skills:
+		if SKILLS[sid].get("delay", false) and bell_next and can_pay(SKILLS[sid], h.mp, h.en):
+			return {"type": "skill", "id": sid}
+	for sid in HEROES[hid].skills:
+		var s: Dictionary = SKILLS[sid]
+		if not can_pay(s, h.mp, h.en):
+			continue
+		if s.kind == "heal":
+			if not hurt.is_empty():
+				return {"type": "skill", "id": sid, "target": hurt[0]}
+			continue
+		return {"type": "skill", "id": sid}
+	return {"type": "attack"}

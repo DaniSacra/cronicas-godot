@@ -1,0 +1,297 @@
+extends CanvasLayer
+## Caixa de diálogo (autoload "Dialogue"), camada 22: acima da vinheta e do toque, abaixo do fade do Game.
+## `await Dialogue.play("cena")` mostra as falas de data/dialogue/cena.json e devolve os eventos que a cena trata
+## (por exemplo "battle:sineiro"). Regras puras em DialogueRules. Não pausa a árvore: quem chama checa is_open().
+## Entrada só por Controls: confirm completa a fala ou avança; cancel volta para a fala anterior.
+
+signal event(name: String)            # eventos "emit:<nome>" das falas
+signal _advance
+
+const R := preload("res://scripts/dialogue_rules.gd")
+const BG := Color("#0e1428e0")
+const BORDER := Color("#3a4a78")
+const SHINE := Color(0.353, 0.431, 0.659, 0.5)
+const TEXT := Color("#f2f4ff")
+const NARRATION := Color("#cfd8ff")
+const SHADOW := Color("#0b0f1e")
+const FRAME_BG := Color("#0a0f20")
+
+var cover: ColorRect                  # fundo preto dos cartões
+var card_text: RichTextLabel
+var box: Panel
+var portrait: TextureRect
+var frame: Panel
+var text: RichTextLabel
+var arrow: TextureRect
+var plate: PanelContainer
+var plate_label: Label
+
+var actors := {}                      # id -> Node2D na cena (para a caixa não cobrir quem fala)
+var spk := {}
+var lines: Array = []
+var history: Array = []               # falas já mostradas nesta conversa (dicionários), no máximo R.HISTORY
+var hist_pos := -1
+var open := false
+var closed_frame := -1
+var opened_at := 0.0
+var plain := ""                       # texto da fala atual, já quebrado em linhas e sem marcação
+var shown := 0
+var clock := 0.0
+var typing := false
+var on_top := false
+var t := 0.0
+var scene_name := ""
+var cover_tw: Tween
+
+func _ready() -> void:
+	layer = 22
+	spk = R.speakers()
+	cover = ColorRect.new()
+	cover.color = Color.BLACK
+	cover.set_anchors_preset(Control.PRESET_FULL_RECT)
+	cover.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(cover)
+	card_text = _rich(R.CARD_SIZE)
+	cover.add_child(card_text)
+	box = Panel.new()
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	box.size = R.BOX
+	var st := UI.panel_style(BORDER, 1, BG)
+	st.set_corner_radius_all(3)
+	st.anti_aliasing = false
+	box.add_theme_stylebox_override("panel", st)
+	add_child(box)
+	var shine := ColorRect.new()
+	shine.color = SHINE
+	shine.position = Vector2(3, 1)
+	shine.size = Vector2(R.BOX.x - 6, 1)
+	box.add_child(shine)
+	frame = Panel.new()
+	frame.size = Vector2(R.PORTRAIT, R.PORTRAIT)
+	frame.add_theme_stylebox_override("panel", UI.panel_style(BORDER, 1, FRAME_BG))
+	box.add_child(frame)
+	portrait = TextureRect.new()
+	portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	portrait.stretch_mode = TextureRect.STRETCH_SCALE
+	portrait.size = frame.size
+	portrait.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	frame.add_child(portrait)
+	text = _rich(R.TEXT_SIZE)
+	box.add_child(text)
+	arrow = TextureRect.new()
+	arrow.texture = UI.icon("more")
+	arrow.size = Vector2(16, 16)
+	box.add_child(arrow)
+	plate = PanelContainer.new()
+	var ps := UI.panel_style(BORDER, 1, Color("#0e1428"))
+	ps.set_corner_radius_all(3)
+	ps.anti_aliasing = false
+	ps.content_margin_left = 6
+	ps.content_margin_right = 6
+	ps.content_margin_top = 0
+	ps.content_margin_bottom = 0
+	plate.add_theme_stylebox_override("panel", ps)
+	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(plate)
+	plate_label = UI.label("", R.TEXT_SIZE, Color.WHITE, 0)
+	plate_label.custom_minimum_size.y = 16
+	plate_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	plate.add_child(plate_label)
+	_hide_all()
+
+func _rich(size: int) -> RichTextLabel:
+	var r := RichTextLabel.new()
+	r.bbcode_enabled = true
+	r.scroll_active = false
+	r.autowrap_mode = TextServer.AUTOWRAP_OFF      # as linhas já vêm quebradas (DialogueRules.wrap)
+	r.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	r.add_theme_font_size_override("normal_font_size", size)
+	r.add_theme_color_override("font_shadow_color", SHADOW)
+	r.add_theme_constant_override("shadow_offset_x", 1)
+	r.add_theme_constant_override("shadow_offset_y", 1)
+	r.add_theme_constant_override("line_separation", 0)
+	return r
+
+func _hide_all() -> void:
+	cover.hide()
+	box.hide()
+	plate.hide()
+
+## A conversa está na tela (ou acabou de fechar neste quadro: o confirm que fechou não vale para a cena).
+func is_open() -> bool:
+	return open or closed_frame == Engine.get_process_frames()
+
+## A caixa está em cima (a batalha esconde a barra do topo).
+func box_on_top() -> bool:
+	return open and box.visible and on_top
+
+## Retângulo da caixa na tela (o toque põe o botão voltar acima dela).
+func box_rect() -> Rect2:
+	return Rect2(box.position, box.size)
+
+func register_actor(id: String, node: Node2D) -> void:
+	actors[id] = node
+
+## Toca a cena inteira. Devolve os eventos que não são de flag nem de tempo (ex.: "battle:sineiro").
+func play(scene: String, from := "") -> Array:
+	var out := []
+	if open:
+		push_warning("Dialogue.play('%s') com outra conversa aberta" % scene)
+		return out
+	scene_name = scene
+	lines = R.load_scene(scene).get("lines", [])
+	history.clear()
+	hist_pos = -1
+	var i := R.index_of(lines, from) if from != "" else 0
+	while true:
+		i = R.first_valid(lines, i, Game.flags, Game.party.keys())
+		if i == -1:
+			break
+		var ln: Dictionary = lines[i]
+		if ln.has("text"):
+			_show_line(ln)
+		for e in R.apply_events(ln.get("do", []), Game.flags):
+			var p := String(e).split(":", true, 1)
+			match p[0]:
+				"wait": await get_tree().create_timer(float(p[1]), false).timeout
+				"heal": Game.heal_all()
+				"emit": event.emit(p[1])
+				"join": pass             # o grupo da fatia já está completo
+				_: out.append(e)
+		if ln.has("text"):
+			await _advance
+		i = R.after(lines, i)
+	_close()
+	return out
+
+func _show_line(ln: Dictionary) -> void:
+	if not open:
+		open = true
+		opened_at = t
+	history.append(ln)
+	if history.size() > R.HISTORY:
+		history.pop_front()
+	hist_pos = history.size() - 1
+	_render(ln, true)
+
+func _close() -> void:
+	if not open:
+		return
+	open = false
+	closed_frame = Engine.get_process_frames()
+	box.hide()
+	plate.hide()
+	if cover.visible:
+		_fade_cover()
+
+func _fade_cover() -> void:
+	cover_tw = create_tween()
+	cover_tw.tween_property(cover, "modulate:a", 0.0, 0.6)
+	cover_tw.tween_callback(cover.hide)
+
+## Desenha a fala: cartão em tela cheia, narração, ou fala com plaquinha e retrato.
+func _render(ln: Dictionary, animate: bool) -> void:
+	var who: Dictionary = spk.get(ln.get("speaker", ""), {})
+	# tradução: a chave dlg.<cena>.<id>; sem tradução carregada, vale o português do JSON
+	var k := R.key(scene_name, String(ln.get("id", "")))
+	var src := tr(k)
+	var raw := R.fill(String(ln.text) if src == k else src, Game.names)
+	var font := UI.body_font()
+	var wrapped := "\n".join(R.wrap_lines(raw, font, R.text_size(who), R.text_width(who)))
+	plain = R.plain(wrapped)
+	var target: RichTextLabel = card_text if who.get("card", false) else text
+	var card: bool = who.get("card", false)
+	target.text = ("[center]%s[/center]" if card else "%s") % R.to_bbcode(wrapped)
+	shown = 0 if animate and Game.text_cps() > 0 else plain.length()
+	clock = 0.0
+	typing = shown < plain.length()
+	target.visible_characters = shown
+	if who.get("card", false):
+		_layout_card()
+		box.hide()
+		plate.hide()
+		if not cover.visible or cover.modulate.a < 1.0:
+			if cover_tw != null:
+				cover_tw.kill()
+			cover.show()
+			cover.modulate.a = 1.0
+		return
+	if cover.visible and cover.modulate.a >= 1.0:
+		_fade_cover()
+	_layout_box(String(ln.get("speaker", "")), who)
+
+func _layout_card() -> void:
+	var vis := get_viewport().get_visible_rect().size
+	var lines_n := plain.count("\n") + 1
+	var h := lines_n * UI.body_font().get_height(R.CARD_SIZE)
+	card_text.size = Vector2(R.CARD_W, h + 4)
+	card_text.position = ((vis - Vector2(R.CARD_W, h)) / 2.0).round()
+	card_text.add_theme_color_override("default_color", TEXT)
+	var safe := UI.safe_rect(get_viewport())
+	arrow.reparent(cover, false)
+	arrow.position = safe.end - Vector2(16, 12)
+
+func _layout_box(id: String, who: Dictionary) -> void:
+	var vis := get_viewport().get_visible_rect().size
+	var safe := UI.safe_rect(get_viewport())
+	var bottom := R.box_rect(vis.x, safe, false)
+	var top := R.box_rect(vis.x, safe, true)
+	var feet := Rect2()
+	if actors.has(id) and is_instance_valid(actors[id]) and actors[id].is_inside_tree():
+		feet = R.speaker_rect(actors[id].get_global_transform_with_canvas().origin)
+	on_top = R.box_on_top(feet, bottom, top)
+	var r := top if on_top else bottom
+	box.position = r.position
+	box.show()
+	arrow.reparent(box, false)
+	arrow.position = Vector2(R.BOX.x - 20, R.BOX.y - 14)
+	var narr := String(who.get("name", "")) == ""
+	var has_face: bool = who.get("portrait", false)
+	var left: bool = who.get("side", "left") == "left"
+	frame.visible = has_face
+	var tx := 16.0
+	if has_face:
+		portrait.texture = Fx.face_texture(id, 32)
+		portrait.flip_h = not left and who.get("flip", true)
+		frame.position = Vector2(12, 12) if left else Vector2(R.BOX.x - 12 - R.PORTRAIT, 12)
+		tx = 88.0 if left else 16.0
+	var tw := R.text_width(who)
+	text.position = Vector2(tx, 14)
+	text.size = Vector2(tw, R.LINE_H * R.MAX_LINES + 4)
+	text.add_theme_color_override("default_color", NARRATION if narr else TEXT)
+	plate.visible = not narr
+	if not narr:
+		plate_label.text = R.fill(String(who.name), Game.names).to_upper()
+		plate_label.add_theme_color_override("font_color", Color(who.get("color", "#e6e9f5")))
+		plate.reset_size()
+		var px := r.position.x + tx if left else r.position.x + tx + tw - plate.size.x
+		plate.position = Vector2(px, r.position.y - 8)
+
+func _process(delta: float) -> void:
+	t += delta
+	if not open:
+		return
+	var target: RichTextLabel = card_text if box.visible == false else text
+	if typing:
+		clock += delta
+		var cps := Game.text_cps()
+		while shown < plain.length() and clock >= R.char_time(plain, shown, cps):
+			clock -= R.char_time(plain, shown, cps)
+			shown += 1
+		typing = shown < plain.length()
+		target.visible_characters = shown
+	arrow.visible = not typing
+	arrow.position.y = (R.BOX.y - 14 if arrow.get_parent() == box else UI.safe_rect(get_viewport()).end.y - 12) + (2.0 if fmod(t, 1.0) < 0.5 else 0.0)
+	if Input.is_action_just_pressed("confirm") and R.accepts_confirm(t - opened_at):
+		if typing:
+			shown = plain.length()
+			typing = false
+			target.visible_characters = -1
+		elif hist_pos < history.size() - 1:
+			hist_pos += 1
+			_render(history[hist_pos], false)
+		else:
+			_advance.emit()
+	elif Input.is_action_just_pressed("cancel") and hist_pos > 0:
+		hist_pos -= 1
+		_render(history[hist_pos], false)

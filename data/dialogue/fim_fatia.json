@@ -1,0 +1,8 @@
+{
+  "scene": "fim_fatia",
+  "lines": [
+    {"id": "c01", "speaker": "cartao", "text": "Naquela noite, nenhuma cova se abriu em Valmor."},
+    {"id": "c02", "speaker": "cartao", "text": "Mas o túmulo estava vazio. E ninguém sabe quem chegou primeiro."},
+    {"id": "c03", "speaker": "cartao", "text": "Crônicas de Eterra: Os Reis Caídos. Fim da demonstração. Obrigado por jogar.", "do": ["set:fatia_concluida"]}
+  ]
+}

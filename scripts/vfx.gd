@@ -13,7 +13,7 @@ static func add_mat() -> CanvasItemMaterial:
 	return _add
 
 static func _wait(host: Node, sec: float) -> void:
-	await host.get_tree().create_timer(sec).timeout
+	await host.get_tree().create_timer(sec, false).timeout   # para com o jogo pausado
 
 static func _beam_texture() -> Texture2D:
 	if _beam == null:
@@ -60,7 +60,7 @@ static func sparks(host: Node, pos: Vector2, color: Color, amount: int, speed: f
 	p.position = pos
 	p.one_shot = true
 	p.explosiveness = 0.95
-	p.amount = amount
+	p.amount = Fx.particles(amount, Controls.is_touch)
 	p.lifetime = life
 	p.direction = dir
 	p.spread = spread
@@ -195,7 +195,7 @@ static func fireball(host: Node, from: Vector2, to: Vector2) -> void:
 		s.scale = Vector2.ONE * (float(spec[0]) / 256.0 * 2.0)
 		proj.add_child(s)
 	var trail := CPUParticles2D.new()
-	trail.amount = 40
+	trail.amount = Fx.particles(40, Controls.is_touch)
 	trail.lifetime = 0.45
 	trail.local_coords = false
 	trail.direction = Vector2(0, 1)
@@ -423,7 +423,7 @@ static func shadow_streak(host: Node, from: Vector2, to: Vector2, dur: float) ->
 	s.z_index = 5
 	host.add_child(s)
 	var trail := CPUParticles2D.new()
-	trail.amount = 30
+	trail.amount = Fx.particles(30, Controls.is_touch)
 	trail.lifetime = 0.5
 	trail.local_coords = false
 	trail.direction = Vector2(0, -1)

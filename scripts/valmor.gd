@@ -1,10 +1,11 @@
 extends Node2D
 ## Fatia vertical: Valmor à noite. Luz colorida sobre pixel art, grupo que segue o líder, neve e vinheta.
-## Controles: WASD ou setas para andar, F11 tela cheia.
+## Controles pelo autoload Controls (andar, confirm; F11 tela cheia fica no próprio Controls).
+## Falas pelo autoload Dialogue: abertura ao chegar, exame (confirm longe da porta), porta da igreja velha, volta
+## depois da vitória e cartão final. Com o diálogo aberto o grupo não anda e o confirm não vale para a cena.
 
 const HEROES := ["aldo", "lyra", "teo", "andilla"]
 const SPEED := 105.0
-const MAX_LIGHTS_TOUCH := 6     # orçamento de luzes em celular (as luzes 2D são o que mais pesa)
 const TRAIL_GAP := 24            # pontos da trilha (cerca de 1 px cada) entre um herói e o próximo
 const NIGHT := Color(0.30, 0.36, 0.62)
 const BACKDROP := "res://assets/valmor_night.png"
@@ -15,9 +16,10 @@ const BLOCKERS := [                     # casas e árvores, em pixels da imagem 
 	Rect2(100, 228, 92, 80), Rect2(190, 256, 150, 50), Rect2(98, 55, 36, 250), Rect2(98, 55, 110, 82),
 	Rect2(448, 55, 94, 88), Rect2(500, 55, 42, 250)]
 const WALK := Rect2(130, 140, 380, 160)
-const HOTSPOT := Vector2(295, 232)      # a descida para a cripta, em pixels da imagem gerada
+const HOTSPOT := Vector2(295, 232)      # a porta da igreja velha (a descida para a cripta), em pixels da imagem gerada
 const HOTSPOT_RANGE := 34.0
 const LIGHTS_FILE := "res://scripts/valmor_lights.json"
+const HINT_TIME := 6.0                  # a dica de controles some depois disso ou no primeiro passo
 
 var world: Node2D
 var party: Array = []            # {root, sprite, name}
@@ -25,7 +27,7 @@ var shot_frame := 0
 var trail: Array = []            # caminho do líder: um ponto a cada pixel andado; os outros seguem esse caminho
 var facing := "south"
 var moving := false
-var lights: Array = []           # {node, base, phase}
+var lights: Array = []           # {node, base, phase}; as do cenário vêm primeiro, por ordem do JSON
 var t := 0.0
 var shot_path := ""
 var cam: Camera2D
@@ -34,6 +36,10 @@ var prompt: Label
 var leaving := false
 var fade: ColorRect
 var frames_seen := 0
+var hint: Label
+var hint_tw: Tween
+var walked := false
+var snow: CPUParticles2D
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(Color(0.02, 0.03, 0.07))
@@ -59,9 +65,16 @@ func _ready() -> void:
 	_add_camera()
 	_add_snow()
 	_add_vignette()
-	_add_hint()
 	_add_hotspot()
+	_add_hint()
+	Controls.device_changed.connect(func(_m): _on_device())
+	get_viewport().size_changed.connect(_fit_snow)
+	_fit_snow()
+	_apply_budget()
 	add_child(load("res://scripts/touch_controls.gd").new())
+	add_child(load("res://scripts/pause_menu.gd").new())
+	for m in party:
+		Dialogue.register_actor(m.name, m.root)
 
 	var args := OS.get_cmdline_user_args()
 	for a in args:
@@ -74,6 +87,8 @@ func _ready() -> void:
 	if "--dev-battle" in args and not Game.flags.get("sineiro_morto", false):   # atalho de desenvolvimento
 		party[0].root.position = _w(HOTSPOT)
 		get_tree().create_timer(0.6).timeout.connect(_start_battle)
+	elif not Game.flags.get("abertura_vista", false) and not Game.skip_intro():
+		_talk("abertura")
 
 func _w(img: Vector2) -> Vector2:   # pixel da imagem gerada -> mundo
 	return (img - CROP.position) * ZOOM
@@ -94,19 +109,21 @@ func _load_lights() -> void:
 	var data := []
 	if FileAccess.file_exists(LIGHTS_FILE):
 		data = JSON.parse_string(FileAccess.get_file_as_string(LIGHTS_FILE))
-	if Controls.is_touch:
-		data = data.slice(0, MAX_LIGHTS_TOUCH)
 	for d in data:
 		var c := Color(d.get("color", "#ffb060"))
 		var l := Fx.make_light(self, _w(Vector2(d.x, d.y)), c, d.get("energy", 1.2), d.get("radius", 80))
-		lights.append({"node": l, "base": l.energy, "phase": randf() * 100.0, "flicker": d.get("flicker", 0.15)})
+		lights.append({"node": l, "base": l.energy, "phase": randf() * 100.0, "flicker": d.get("flicker", 0.15), "scene": true})
 
 # ---------- grupo ----------
 
 func _spawn_party(start: Vector2) -> void:
-	for h in HEROES:
+	# a fila nasce atrás do líder (para baixo, de onde o grupo veio), não empilhada no mesmo ponto
+	for i in range(TRAIL_GAP * HEROES.size() + 2):
+		trail.append(start + Vector2(0, i))
+	for i in HEROES.size():
+		var h: String = HEROES[i]
 		var root := Node2D.new()
-		root.position = start
+		root.position = trail[i * TRAIL_GAP]
 		var sh := Sprite2D.new()
 		sh.texture = Fx.shadow_texture()
 		sh.scale = Vector2(0.55, 0.22)
@@ -118,13 +135,13 @@ func _spawn_party(start: Vector2) -> void:
 		sp.offset = Vector2(-28, -66)
 		sp.play("face_south")
 		root.add_child(sp)
-		world.add_child(root)
 		party.append({"root": root, "sprite": sp, "name": h})
+	# no y-sort, quem entra por último fica por cima no empate: o líder entra por último
+	for i in range(party.size() - 1, -1, -1):
+		world.add_child(party[i].root)
 	# lampião do líder: a luz quente que acompanha o Aldo
 	var lamp := Fx.make_light(party[0].root, Vector2(0, -26), Color("#ffc27a"), 1.1, 120)
 	lights.append({"node": lamp, "base": 1.1, "phase": 3.0, "flicker": 0.10})
-	for i in range(TRAIL_GAP * HEROES.size() + 2):
-		trail.append(start)
 
 # ---------- neve, vinheta, dica ----------
 
@@ -141,21 +158,12 @@ func _add_camera() -> void:
 
 func _add_hotspot() -> void:
 	var pos := _w(HOTSPOT)
-	mark = Label.new()
-	mark.text = "!"
+	mark = UI.label("!", 24, Color("#ffe080"), 3)
 	mark.position = pos + Vector2(-3, -52)
-	mark.add_theme_font_size_override("font_size", 24)
-	mark.add_theme_color_override("font_color", Color("#ffe080"))
-	mark.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-	mark.add_theme_constant_override("outline_size", 5)
 	mark.z_index = 70
 	mark.visible = not Game.flags.get("sineiro_morto", false)
 	world.add_child(mark)
-	prompt = Label.new()
-	prompt.text = "A: descer à cripta"
-	prompt.add_theme_font_size_override("font_size", 12)
-	prompt.add_theme_color_override("font_outline_color", Color(0, 0, 0))
-	prompt.add_theme_constant_override("outline_size", 5)
+	prompt = UI.label()
 	prompt.z_index = 70
 	prompt.hide()
 	world.add_child(prompt)
@@ -170,10 +178,27 @@ func _add_hotspot() -> void:
 	create_tween().tween_property(fade, "color:a", 0.0, 0.6)
 	if Game.flags.get("sineiro_morto", false) and Game.return_pos != Vector2.ZERO and not Game.flags.get("voltou", false):
 		Game.flags["voltou"] = true
-		get_tree().create_timer(0.9).timeout.connect(func(): _toast("O sino se calou."))
+		get_tree().create_timer(0.9).timeout.connect(func(): _talk("valmor_volta"))
 
 func _near_hotspot() -> bool:
 	return not Game.flags.get("sineiro_morto", false) and party[0].root.position.distance_to(_w(HOTSPOT)) < HOTSPOT_RANGE
+
+## Uma conversa; enquanto ela dura a dica some. A porta leva à luta; o exame, depois das quatro falas da volta,
+## leva ao cartão final.
+func _talk(scene: String) -> void:
+	hint.modulate.a = 0.0
+	var ev := await Dialogue.play(scene)
+	if not walked:
+		_show_hint()
+	if "battle:sineiro" in ev:
+		_start_battle()
+	elif scene == "valmor_exame" and _all_heard() and not Game.flags.get("fatia_concluida", false):
+		await Dialogue.play("fim_fatia")
+		leaving = true
+		Game.goto(Game.TITLE, true)
+
+func _all_heard() -> bool:
+	return HEROES.all(func(h): return Game.flags.get("exame_depois_" + h, false))
 
 func _start_battle() -> void:
 	leaving = true
@@ -186,7 +211,6 @@ func _start_battle() -> void:
 func _add_snow() -> void:
 	var p := CPUParticles2D.new()
 	p.position = Vector2(0, -190)
-	p.amount = 120 if Controls.is_touch else 260
 	p.lifetime = 9.0
 	p.preprocess = 9.0
 	p.emission_shape = CPUParticles2D.EMISSION_SHAPE_RECTANGLE
@@ -201,12 +225,37 @@ func _add_snow() -> void:
 	p.color = Color(0.9, 0.95, 1.0, 0.85)
 	p.z_index = 50
 	cam.add_child(p)
+	snow = p
+
+## Orçamento do celular (Fx.MAX_LIGHTS_TOUCH, menos neve), refeito quando o toque aparece ou some.
+## O lampião do líder fica sempre aceso: só as luzes do cenário entram na conta.
+func _apply_budget() -> void:
+	var touch := Controls.is_touch
+	var i := 0
+	for L in lights:
+		if L.has("scene"):
+			L.node.enabled = Fx.light_on(i, touch)
+			i += 1
+	var n := Fx.particles(260, touch)
+	if snow.amount != n:
+		snow.amount = n
+
+func _on_device() -> void:
+	_apply_budget()
+	_refresh_prompts()
+
+## A neve cai sobre toda a largura visível (tela larga, Deck), não só sobre os 640x360 da base.
+func _fit_snow() -> void:
+	var vis := get_viewport().get_visible_rect().size
+	snow.position = Vector2(0, -vis.y / 2.0 - 10)
+	snow.emission_rect_extents = Vector2(vis.x / 2.0 + 20, 4)
 
 func _add_vignette() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 10
 	var rect := ColorRect.new()
-	rect.size = Vector2(640, 360)
+	rect.set_anchors_preset(Control.PRESET_FULL_RECT)
+	rect.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var sh := Shader.new()
 	sh.code = "shader_type canvas_item;\nvoid fragment(){ vec2 uv = UV - 0.5; float v = smoothstep(0.30, 0.80, length(uv * vec2(1.0, 1.15))); COLOR = vec4(0.01, 0.02, 0.07, v * 0.65); }"
 	var mat := ShaderMaterial.new()
@@ -218,13 +267,43 @@ func _add_vignette() -> void:
 func _add_hint() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 11
-	var lbl := Label.new()
-	lbl.text = "Arraste o círculo para andar    A: falar" if Controls.is_touch else "WASD ou setas: andar    E: falar    F11: tela cheia"
-	lbl.position = Vector2(8, 4)
-	lbl.add_theme_font_size_override("font_size", 12)
-	lbl.modulate = Color(1, 1, 1, 0.7)
-	layer.add_child(lbl)
+	hint = UI.label()
+	hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hint.offset_bottom = -UI.SAFE
+	layer.add_child(hint)
 	add_child(layer)
+	_refresh_prompts()
+
+## Dica de controles embaixo, no centro (no toque, entre o joystick e os botões), por HINT_TIME segundos.
+## Volta quando o jogador troca de aparelho, com os rótulos novos.
+func _show_hint() -> void:
+	if Dialogue.open:
+		return
+	if hint_tw != null:
+		hint_tw.kill()
+	hint.modulate.a = 1.0
+	hint_tw = create_tween()
+	hint_tw.tween_interval(HINT_TIME)
+	hint_tw.tween_property(hint, "modulate:a", 0.0, 0.6)
+
+func _hide_hint() -> void:
+	if hint_tw != null:
+		hint_tw.kill()
+	hint_tw = create_tween()
+	hint_tw.tween_property(hint, "modulate:a", 0.0, 0.4)
+
+## Dicas com o rótulo do aparelho em uso: trocam sozinhas quando o jogador passa do teclado ao controle ou ao toque.
+func _refresh_prompts() -> void:
+	var c := Controls.prompt("confirm")
+	match Controls.mode():
+		"touch": hint.text = "Arraste o círculo para andar    %s: falar" % c
+		"pad": hint.text = "Analógico: andar    %s: falar" % c
+		_: hint.text = "%s: andar    %s: falar    %s: tela cheia" % [Controls.prompt("move"), c, Controls.prompt("fullscreen")]
+	prompt.text = "%s: entrar na igreja velha" % c
+	_show_hint()
 
 # ---------- laço principal ----------
 
@@ -236,20 +315,23 @@ func _process(delta: float) -> void:
 
 	var dir := Controls.move_vector()
 	moving = dir.length() > 0.1
-	if Input.is_action_just_pressed("confirm") and not leaving:
-		if _near_hotspot():
-			_start_battle()
-		else:
-			_toast("Aldo: Frio de rachar.")
+	if Dialogue.is_open():
+		dir = Vector2.ZERO
+		moving = false
+	elif Input.is_action_just_pressed("confirm") and not leaving:
+		_talk("igreja_velha" if _near_hotspot() else "valmor_exame")
 	if mark != null and mark.visible:
 		mark.position.y = _w(HOTSPOT).y - 52 + sin(t * 4.0) * 2.0
-		var near := _near_hotspot()
+		var near := _near_hotspot() and not Dialogue.is_open()
 		prompt.visible = near
-		prompt.position = _w(HOTSPOT) + Vector2(-48, -72)
+		prompt.position = _w(HOTSPOT) + Vector2(-prompt.get_minimum_size().x / 2.0, -72).round()
 	if leaving:
 		moving = false
 		return
 	var leader: Node2D = party[0].root
+	if moving and not walked:
+		walked = true
+		_hide_hint()
 	if moving:
 		var step_v := dir * SPEED * delta
 		for axis in [Vector2(step_v.x, 0), Vector2(0, step_v.y)]:   # desliza junto às paredes
@@ -271,7 +353,6 @@ func _process(delta: float) -> void:
 			m.root.position = m.root.position.move_toward(trail[i * TRAIL_GAP], SPEED * delta * 1.15)   # anda atrás do caminho, sem teleportar
 		var step: bool = moving if i == 0 else m.root.position.distance_to(before) > 0.05
 		_animate(m, step)
-		m.root.z_index = 0
 
 	if "--walk" in OS.get_cmdline_user_args():   # autoteste: o líder anda para a direita e imprime onde cada herói está
 		frames_seen += 1
@@ -298,21 +379,6 @@ func _process(delta: float) -> void:
 			get_viewport().get_texture().get_image().save_png(shot_path)
 			get_tree().quit()
 
-func _toast(text: String) -> void:
-	var root: Node2D = party[0].root
-	var lbl := Label.new()
-	lbl.text = text
-	lbl.position = Vector2(-60, -92)
-	lbl.add_theme_font_size_override("font_size", 12)
-	lbl.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.9))
-	lbl.add_theme_constant_override("outline_size", 4)
-	lbl.z_index = 60
-	root.add_child(lbl)
-	var tw := create_tween()
-	tw.tween_interval(1.4)
-	tw.tween_property(lbl, "modulate:a", 0.0, 0.5)
-	tw.tween_callback(lbl.queue_free)
-
 func _animate(m: Dictionary, step: bool) -> void:
 	var sp: AnimatedSprite2D = m.sprite
 	var f := facing
@@ -335,8 +401,3 @@ func _animate(m: Dictionary, step: bool) -> void:
 			sp.flip_h = false
 			sp.play("face_" + f)
 	sp.offset.y = -66
-
-func _unhandled_input(e: InputEvent) -> void:
-	if e is InputEventKey and e.pressed and e.keycode == KEY_F11:
-		var m := DisplayServer.window_get_mode()
-		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED if m == DisplayServer.WINDOW_MODE_FULLSCREEN else DisplayServer.WINDOW_MODE_FULLSCREEN)

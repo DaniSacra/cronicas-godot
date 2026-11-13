@@ -1,0 +1,11 @@
+{
+  "scene": "abertura",
+  "lines": [
+    {"id": "c01", "speaker": "cartao", "text": "Valmor, sul de Imladrin. Inverno."},
+    {"id": "c02", "speaker": "cartao", "text": "Há noites o sino da igreja velha toca sozinho. A cada toque, uma cova amanhece aberta por dentro."},
+    {"id": "l01", "speaker": "aldo", "text": "Quatro para descer. O velho contou duas vezes."},
+    {"id": "l02", "speaker": "andilla", "text": "Contou a mim duas vezes. Não gostei."},
+    {"id": "l03", "speaker": "teo", "expr": "preocupado", "text": "O sino. De novo."},
+    {"id": "l04", "speaker": "lyra", "expr": "alegre", "text": "{aldo} ouviu. {aldo} está fingindo que não ouviu.", "do": ["set:abertura_vista"]}
+  ]
+}

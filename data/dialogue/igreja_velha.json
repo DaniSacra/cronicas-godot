@@ -1,0 +1,18 @@
+{
+  "scene": "igreja_velha",
+  "lines": [
+    {"id": "volta", "speaker": "aldo", "expr": "bravo", "text": "O sino ainda toca. De novo.",
+     "if": ["flag:igreja_vista"], "next": "fim"},
+
+    {"id": "l01", "speaker": "lyra", "text": "Construíram uma igreja em cima de um túmulo. Ou queriam rezar pelo morto, ou queriam que ele não saísse."},
+    {"id": "l02", "speaker": "teo", "expr": "preocupado", "text": "Uma casa de oração vazia. Ninguém reza aqui faz cinquenta anos."},
+    {"id": "l03", "speaker": "andilla", "text": "Porta caída, telhado aberto. Nunca foi tão fácil entrar num lugar."},
+    {"id": "n01", "speaker": "narrador", "text": "A corda do sino pende cortada na torre vazia. No chão da nave, um buraco."},
+    {"id": "n02", "speaker": "narrador", "text": "O sino toca lá embaixo."},
+    {"id": "l04", "speaker": "andilla", "text": "Sino tocando numa igreja sem ninguém. Que ótimo."},
+    {"id": "l05", "speaker": "aldo", "text": "Fiquem atrás de mim."},
+    {"id": "l06", "speaker": "lyra", "expr": "alegre", "text": "Fica você atrás de mim. Eu tenho o fogo.", "do": ["set:igreja_vista"]},
+
+    {"id": "fim", "do": ["battle:sineiro"]}
+  ]
+}

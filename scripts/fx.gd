@@ -2,6 +2,10 @@ class_name Fx
 extends RefCounted
 ## Ferramentas visuais compartilhadas pelas cenas: luz, sombra e os quadros dos heróis.
 
+## Orçamento do celular: as luzes 2D e as partículas são o que mais pesa no GL Compatibility.
+const MAX_LIGHTS_TOUCH := 6          # luzes fixas do cenário acesas no toque (as primeiras da lista, por prioridade)
+const PARTICLES_TOUCH := 0.5         # fração das partículas no toque
+
 static var _light: Texture2D
 static var _shadow: Texture2D
 static var _frames: Dictionary = {}
@@ -32,6 +36,14 @@ static func shadow_texture() -> Texture2D:
 		t.gradient.set_color(1, Color(0, 0, 0, 0))
 		_shadow = t
 	return _shadow
+
+## A luz fixa de índice `i` fica acesa? No toque só as MAX_LIGHTS_TOUCH primeiras.
+static func light_on(i: int, touch: bool) -> bool:
+	return not touch or i < MAX_LIGHTS_TOUCH
+
+## Quantidade de partículas de um efeito: a metade no toque, nunca menos de 1.
+static func particles(n: int, touch: bool) -> int:
+	return maxi(1, roundi(n * PARTICLES_TOUCH)) if touch else n
 
 static func make_light(parent: Node, pos: Vector2, color: Color, energy: float, radius: float) -> PointLight2D:
 	var l := PointLight2D.new()
@@ -86,12 +98,17 @@ static func _new_frames(hero: String) -> SpriteFrames:
 			sf.add_frame(pair[0], sf.get_frame_texture(pair[1], k))
 	return sf
 
-## Rosto para a carta de status.
-static func face_texture(hero: String) -> Texture2D:
+## Centro do rosto em cada quadro de 64x64 do desenho novo.
+const FACE_CENTER := {"aldo": Vector2(38, 12), "lyra": Vector2(41, 16), "teo": Vector2(38, 16), "andilla": Vector2(41, 17)}
+
+## Rosto recortado em 1:1 do quadro parado: 22x22 na carta de status; 32x32 é o retrato provisório do diálogo
+## (mostrado em 2x, 64x64, decisão C9), preso dentro do quadro de 64x64.
+static func face_texture(hero: String, size := 22) -> Texture2D:
 	var atlas := AtlasTexture.new()
 	if new_art(hero):
 		atlas.atlas = load("res://assets/heroes2/%s/stance/frame_000.png" % hero)
-		atlas.region = Rect2(18, 0, 40, 36)
+		var tl: Vector2 = (FACE_CENTER[hero] - Vector2(size, size) / 2.0).clamp(Vector2.ZERO, Vector2(64 - size, 64 - size))
+		atlas.region = Rect2(tl.floor(), Vector2(size, size))
 	else:
 		atlas.atlas = load("res://assets/heroes/%s/rot_south.png" % hero)
 		atlas.region = Rect2(12, 3, 32, 30)

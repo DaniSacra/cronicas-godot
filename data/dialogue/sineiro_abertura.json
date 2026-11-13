@@ -1,0 +1,7 @@
+{
+  "scene": "sineiro_abertura",
+  "lines": [
+    {"id": "n01", "speaker": "narrador", "text": "O Sineiro ergue o sino de bronze. Em algum lugar acima, a terra das covas estremece."},
+    {"id": "l01", "speaker": "sineiro", "text": "O último toque foi há cinquenta anos. Ninguém mais desce."}
+  ]
+}

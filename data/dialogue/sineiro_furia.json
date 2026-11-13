@@ -1,0 +1,7 @@
+{
+  "scene": "sineiro_furia",
+  "lines": [
+    {"id": "n01", "speaker": "narrador", "text": "O Sineiro sacode o sino com fúria!"},
+    {"id": "l01", "speaker": "sineiro", "text": "Ninguém mais desce!"}
+  ]
+}
