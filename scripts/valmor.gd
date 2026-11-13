@@ -44,7 +44,7 @@ var toast: PanelContainer
 var toast_tw: Tween
 var busy := false                # na loja da Dora (falas, menu e a loja em si): o grupo não anda
 var shop_pick := ""
-var npcs := {}                   # id do morador -> Sprite2D (provisório)
+var npcs := {}                   # id do morador -> Sprite2D
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(Color(0.02, 0.03, 0.07))
@@ -221,9 +221,9 @@ func _talk_npc(id: String) -> void:
 func _face_npc(id: String) -> void:
 	var n: Dictionary = V.NPCS[id]
 	if not n.has("lying"):
-		npcs[id].texture = load("res://assets/heroes/%s/rot_%s.png" % [n.base, V.face_toward(_w(n.at), party[0].root.position)])
+		npcs[id].texture = Fx.npc_texture(id, V.face_toward(_w(n.at), party[0].root.position))
 
-## Moradores provisórios: o quadro parado de um herói em silhueta tingida (Fx.stand_in_material), com sombra, sem
+## Moradores: sprite próprio (Fx.npc_texture) com sombra, sem
 ## luz nova (o orçamento do celular fica igual). O Tobias fica deitado numa esteira na porta da capela.
 func _add_npcs() -> void:
 	for id in V.NPCS:
@@ -243,10 +243,9 @@ func _add_npcs() -> void:
 			cot.position = Vector2(-40, -16)
 			root.add_child(cot)
 		var sp := Sprite2D.new()
-		sp.texture = load("res://assets/heroes/%s/rot_south.png" % n.base)
-		sp.material = Fx.stand_in_material(Color(n.tint))
+		sp.texture = Fx.npc_texture(id)
 		sp.centered = false
-		sp.offset = Fx.IDLE_OFFSET
+		sp.offset = Fx.npc_offset(sp.texture)
 		sp.scale = Vector2.ONE * n.get("scale", 1.0)
 		if lying:                            # deitado de lado, a cabeça para a esquerda
 			sp.rotation = -PI / 2.0

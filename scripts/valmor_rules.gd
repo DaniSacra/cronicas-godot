@@ -18,19 +18,19 @@ const SOLID := Vector2(32, 12)          # baú e morador são sólidos (mundo): 
 const NPC_DEPTH := 20.0                 # o morador é sólido até 20 px abaixo do pé: o líder para antes e não o cobre
 # Baús (EconomyRules.CHESTS). O escondido fica ao pé do poste, no fim da estrada para o norte.
 const CHEST_AT := {"valmor:poco": Vector2(240, 238), "valmor:quintal": Vector2(392, 146)}
-# Moradores, com sprite provisório: o quadro parado de um herói (`base`) em silhueta tingida (`tint`), sem arte nova.
+# Moradores: sprite próprio em `assets/npcs/<id>/rot_<direção>.png` (Pixel Lab, 4 direções); `scale` encolhe a criança.
 # Ficam fora do meio da estrada e fora das luzes dos postes. A capela é a casa do meio, no alto da estrada; o Tobias
 # está deitado na porta dela, no fim do caminho: falar com ele depois do Sineiro fecha a fatia.
 const NPCS := {
-	"hugo": {"at": Vector2(320, 226), "scene": "valmor_hugo", "verb": "falar com Hugo", "base": "aldo", "tint": "#b08d57"},
-	"berta": {"at": Vector2(296, 208), "scene": "valmor_berta", "verb": "falar com Berta", "base": "andilla", "tint": "#c9826b"},
-	"ana": {"at": Vector2(200, 240), "scene": "valmor_ana", "verb": "falar com Ana", "base": "teo", "tint": "#a7a3c9"},
-	"clara": {"at": Vector2(220, 226), "scene": "valmor_clara", "verb": "falar com Clara", "base": "lyra", "tint": "#d9a6c8"},
-	"bertoldo": {"at": Vector2(262, 246), "scene": "valmor_bertoldo", "verb": "falar com Bertoldo", "base": "aldo", "tint": "#9a9a8a"},
-	"irene": {"at": Vector2(332, 172), "scene": "valmor_irene", "verb": "falar com Irene", "base": "lyra", "tint": "#e8e4d0"},
-	"tobias": {"at": Vector2(356, 180), "scene": "capela_tobias", "verb": "ver o ferido", "base": "aldo", "tint": "#d8c8b0", "lying": true},
-	"nino": {"at": Vector2(463, 286), "scene": "valmor_nino", "verb": "falar com Nino", "base": "teo", "tint": "#7fb0d8", "scale": 0.85},
-	"dora": {"at": Vector2(440, 245), "scene": "loja_dora", "verb": "loja da Dora", "base": "andilla", "tint": "#c7b06a"},
+	"hugo": {"at": Vector2(320, 226), "scene": "valmor_hugo", "verb": "falar com Hugo"},
+	"berta": {"at": Vector2(296, 208), "scene": "valmor_berta", "verb": "falar com Berta"},
+	"ana": {"at": Vector2(200, 240), "scene": "valmor_ana", "verb": "falar com Ana"},
+	"clara": {"at": Vector2(220, 226), "scene": "valmor_clara", "verb": "falar com Clara"},
+	"bertoldo": {"at": Vector2(262, 246), "scene": "valmor_bertoldo", "verb": "falar com Bertoldo"},
+	"irene": {"at": Vector2(332, 172), "scene": "valmor_irene", "verb": "falar com Irene"},
+	"tobias": {"at": Vector2(356, 180), "scene": "capela_tobias", "verb": "ver o ferido", "lying": true},
+	"nino": {"at": Vector2(463, 286), "scene": "valmor_nino", "verb": "falar com Nino", "scale": 0.85},
+	"dora": {"at": Vector2(440, 245), "scene": "loja_dora", "verb": "loja da Dora"},
 }
 
 static func to_world(img: Vector2) -> Vector2:

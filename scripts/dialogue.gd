@@ -338,7 +338,7 @@ func _layout_box(id: String, who: Dictionary) -> void:
 	frame.visible = has_face
 	var tx := 16.0
 	if has_face:
-		portrait.texture = Fx.face_texture(id, 32)
+		portrait.texture = Fx.portrait(id)
 		portrait.flip_h = not left and who.get("flip", true)
 		frame.position = Vector2(12, 12) if left else Vector2(R.BOX.x - 12 - R.PORTRAIT, 12)
 		tx = 88.0 if left else 16.0

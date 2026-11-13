@@ -68,16 +68,15 @@ static func rim_material(cool := Color(0.45, 0.7, 1.0), warm := Color(1.0, 0.55,
 
 ## Sprite provisório (moradores sem arte): o desenho vira silhueta de uma cor só, com o claro e o escuro do original.
 ## Fica claro que é provisório e não confunde com o herói de quem o quadro foi emprestado.
-static var _stand_in: Shader
+## Morador (assets/npcs/<id>/rot_<direção>.png, 64x64 de quadro, o pé perto da borda de baixo).
+static func npc_texture(id: String, dir := "south") -> Texture2D:
+	return load("res://assets/npcs/%s/rot_%s.png" % [id, dir])
 
-static func stand_in_material(tint: Color) -> ShaderMaterial:
-	if _stand_in == null:
-		_stand_in = Shader.new()
-		_stand_in.code = "shader_type canvas_item;\nuniform vec4 tint : source_color;\nvoid fragment(){ vec4 c = texture(TEXTURE, UV); float l = dot(c.rgb, vec3(0.299, 0.587, 0.114)); COLOR = vec4(tint.rgb * (0.35 + 0.9 * l), c.a); }"
-	var m := ShaderMaterial.new()
-	m.shader = _stand_in
-	m.set_shader_parameter("tint", tint)
-	return m
+## Deslocamento que põe o pé do morador (centro da última linha com pixel) na origem do nó.
+static func npc_offset(tex: Texture2D) -> Vector2:
+	var img := tex.get_image()
+	var box := img.get_used_rect()
+	return Vector2(-img.get_width() / 2.0, -float(box.end.y))
 
 ## Heróis no desenho novo (assets/heroes2): quadros de 64x64 virados para a direita, o pé fica num ponto fixo.
 const NEW_FEET := {"aldo": Vector2(-38, -62), "lyra": Vector2(-37, -60), "andilla": Vector2(-35, -63), "teo": Vector2(-36, -62)}
@@ -113,6 +112,11 @@ static func _new_frames(hero: String) -> SpriteFrames:
 
 ## Centro do rosto em cada quadro de 64x64 do desenho novo.
 const FACE_CENTER := {"aldo": Vector2(38, 12), "lyra": Vector2(41, 16), "teo": Vector2(38, 16), "andilla": Vector2(41, 17)}
+
+## Retrato de busto 64x64 do diálogo (Pixel Lab, `assets/portraits/<herói>.png`); sem arquivo, cai no recorte do quadro.
+static func portrait(hero: String) -> Texture2D:
+	var path := "res://assets/portraits/%s.png" % hero
+	return load(path) if ResourceLoader.exists(path) else face_texture(hero, 32)
 
 ## Rosto recortado em 1:1 do quadro parado: 22x22 na carta de status; 32x32 é o retrato provisório do diálogo
 ## (mostrado em 2x, 64x64, decisão C9), preso dentro do quadro de 64x64.

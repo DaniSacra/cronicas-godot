@@ -50,7 +50,7 @@ Pages e serve de referência de falas e mecânicas). **Não publicar nada daqui 
 ## Pontos fracos conhecidos
 - Escala de pixel misturada: cenário em 3x e heróis em 1x. Gerar cenários já na escala dos heróis.
 - Colisão provisória (retângulos por cima da imagem).
-- Diálogo, escolhas, save, itens, loja, baús e moradores prontos. Retratos provisórios (recorte do quadro do herói), moradores
-  provisórios (silhueta tingida de um herói), som provisório. Batalha sem Elos nem fuga.
+- Diálogo, escolhas, save, itens, loja, baús e moradores prontos. Retratos dos heróis (`assets/portraits/`) e moradores (`assets/npcs/`, só parados, 4 direções) já são do Pixel Lab;
+  moradores sem retrato de diálogo. Som provisório. Batalha sem Elos nem fuga.
 - Batalha em visão de baixo para cima (como Sea of Stars): grupo embaixo à esquerda, chefe no alto à direita, piso visto de cima (`assets/battle/arena_bg.png`, `sineiro_td.png`). A versão lateral antiga ficou em `assets/battle/crypt_bg.png` e `sineiro.png`.
 - Cenários gerados trazem uma borda roxa: a arte útil é recortada por `CROP` e o fundo da cripta é ampliado 1,43x (escala não inteira).

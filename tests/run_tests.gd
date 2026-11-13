@@ -520,7 +520,7 @@ func _npc_tests() -> void:
 		for ln in D.load_scene(n.scene).get("lines", []):
 			if ln.has("speaker"):
 				who[ln.speaker] = true
-		check("%s: scene %s exists, speaker in speakers.json and in the scene" % [id, n.scene], spk.has(id) and who.has(id) and ResourceLoader.exists("res://assets/heroes/%s/rot_south.png" % n.base))
+		check("%s: scene %s exists, speaker in speakers.json and in the scene" % [id, n.scene], spk.has(id) and who.has(id) and ["south", "east", "north", "west"].all(func(d): return ResourceLoader.exists("res://assets/npcs/%s/rot_%s.png" % [id, d])))
 	for id in ["hugo", "berta", "ana", "irene", "nino", "bertoldo", "clara"]:
 		var scene: String = VR.NPCS[id].scene
 		var f := {}
