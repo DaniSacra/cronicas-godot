@@ -1,0 +1,8 @@
+<!doctype html><meta charset="utf-8"><title>teo: escolha</title>
+<style>body{background:#1b1d2b;color:#eee;font-family:sans-serif;margin:16px}
+.g{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;max-width:1000px}
+.c{background:#2a2d42;border-radius:8px;padding:8px;text-align:center}
+.c img{width:100%;image-rendering:pixelated;background:#3a3d55;border-radius:6px}
+.c b{font-size:22px;display:block;margin-top:4px}</style>
+<h2>Teo: qual você prefere? (diga o número)</h2><div class="g" id="g"></div>
+<script>for(let i=0;i<16;i++){g.innerHTML+=`<div class="c"><img src="c_${i}.png"><b>${i+1}</b></div>`}</script>

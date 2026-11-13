@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>Animações</title>
+<style>body{background:#1b1d2b;color:#eee;font-family:sans-serif;margin:16px}
+.g{display:flex;gap:16px;flex-wrap:wrap}.c{background:#2a2d42;border-radius:8px;padding:8px;text-align:center}
+canvas{width:256px;height:256px;image-rendering:pixelated;background:#4a4d66;border-radius:6px}</style>
+<h2>Animações (loop)</h2><div class="g" id="g"></div>
+<script>
+const names=["aldo_attack","aldo_heavy","aldo_defend","aldo_hurt","aldo_run","aldo_fall","andilla_loop","andilla_attack","andilla_slashx","andilla_defend","lyra_attack","lyra_cast","lyra_defend","lyra_hurt","lyra_run","lyra_fall","andilla_hurt","andilla_run","andilla_fall"];
+for(const d of names){
+ const c=document.createElement("canvas");c.width=c.height=64;
+ const box=document.createElement("div");box.className="c";box.innerHTML="<div>"+d+"</div>";box.prepend(c);g.appendChild(box);
+ const imgs=[...Array(9).keys()].map(i=>{const m=new Image();m.src=d+"/f_"+i+".png";return m});
+ let k=0;const x=c.getContext("2d");x.imageSmoothingEnabled=false;
+ setInterval(()=>{x.clearRect(0,0,64,64);try{x.drawImage(imgs[k%9],0,0)}catch(e){}k++},110);
+}
+</script>

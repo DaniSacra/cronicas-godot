@@ -1,0 +1,15 @@
+<!doctype html><meta charset="utf-8"><title>Teste de animação</title>
+<style>body{background:#1b1d2b;color:#eee;font-family:sans-serif;margin:16px}
+.g{display:flex;gap:24px;flex-wrap:wrap}.c{background:#2a2d42;border-radius:8px;padding:10px;text-align:center}
+canvas{width:384px;height:384px;image-rendering:pixelated;background:#4a4d66;border-radius:6px}</style>
+<h2>Animação a partir do desenho (loop)</h2><div class="g" id="g"></div>
+<script>
+const items=[["aldo6","Aldo 6"],["aldo10","Aldo 10"],["lyra15","Lyra 15"]];
+for(const [d,n] of items){
+ const c=document.createElement("canvas");c.width=c.height=64;
+ const box=document.createElement("div");box.className="c";box.innerHTML="<h3>"+n+"</h3>";box.prepend(c);document.getElementById("g").appendChild(box);
+ const imgs=[...Array(9).keys()].map(i=>{const m=new Image();m.src=d+"/f_"+i+".png";return m});
+ let k=0;const x=c.getContext("2d");x.imageSmoothingEnabled=false;
+ setInterval(()=>{x.clearRect(0,0,64,64);x.drawImage(imgs[k%9],0,0);k++},120);
+}
+</script>
