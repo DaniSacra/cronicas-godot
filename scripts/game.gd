@@ -8,12 +8,21 @@ const FADE := 0.4
 
 var party := {}                     # id -> {lv, hp, mp, bonus}
 # Flags viram dado de save: depois do lançamento nenhuma muda de nome. Hoje: sineiro_morto, abertura_vista,
-# igreja_vista, tumulo_visto, fatia_concluida, exame_antes_<herói>, exame_depois_<herói>.
+# igreja_vista, tumulo_visto, fatia_concluida, exame_antes_<herói>, exame_depois_<herói>, falou_<morador>_antes,
+# falou_<morador>_depois (ValmorRules.NPCS), falou_berta_rei, tobias_visto.
 var flags := {}
 var return_pos := Vector2.ZERO      # onde o líder volta no mapa depois da batalha
 var tries := 0                      # derrotas nesta jogada: a nova tentativa abre com a fala curta da igreja
 var names := {}                     # {aldo} no texto vira o nome escolhido (hoje fixo)
-var options := {"text_speed": "normal"}   # até existir a camada de save, vale só nesta sessão
+var inv := {}                       # bolsa: id do item (EconomyRules.ITEMS) -> quantidade
+var gold := 0                       # moedas
+var opened: Array = []              # baús já abertos (EconomyRules.CHESTS)
+var started := false                # há uma jogada em andamento (Nova jogada ou Continuar): só então o save guarda o jogo
+var leader_pos := Callable()        # a Valmor diz onde o líder está (para o save); fora dela vale return_pos
+var ui_closed_frame := -1           # quadro em que a pausa ou a loja fechou: o confirm que fechou não vale para a cena
+# Opções: salvas pelo Save junto com o jogo (mescladas sobre os padrões ao carregar). "music" e "sfx": 0 a 10
+# (AudioRules.LEVELS). Chaves não mudam de nome depois do lançamento.
+var options := SaveRules.default_options()
 var fade: ColorRect
 
 func _ready() -> void:
@@ -34,15 +43,37 @@ func _setup_font() -> void:
 	ThemeDB.get_default_theme().default_font_size = 12
 
 func reset() -> void:
-	flags = {}
-	return_pos = Vector2.ZERO
+	restore(SaveRules.new_game())
+	started = false
+
+## Põe no Game um jogo já limpo por SaveRules (jogo novo ou carregado do arquivo).
+func restore(g: Dictionary) -> void:
+	flags = g.flags.duplicate(true)
+	party = g.party.duplicate(true)
+	gold = int(g.gold)
+	inv = g.inv.duplicate()
+	opened = g.opened.duplicate()
+	return_pos = Vector2(g.pos[0], g.pos[1]) if g.pos is Array else Vector2.ZERO
 	tries = 0
-	party = {}
 	names = {}
 	for id in BattleRules.HEROES:
-		var lv := 4
-		party[id] = {"lv": lv, "hp": BattleRules.stat(id, lv, "hp"), "mp": BattleRules.stat(id, lv, "mp"), "bonus": {}}
 		names[id] = BattleRules.HEROES[id].name
+
+## O jogo como vai para o save. A posição é a do líder na Valmor; em outra cena, a de volta (porta da igreja).
+func snapshot() -> Dictionary:
+	var p := return_pos
+	if leader_pos.is_valid():
+		p = leader_pos.call()
+	return {"scene": "valmor", "pos": [p.x, p.y] if p != Vector2.ZERO else null, "flags": flags.duplicate(true),
+		"party": party.duplicate(true), "gold": gold, "inv": inv.duplicate(), "opened": opened.duplicate()}
+
+## Moedas e bolsa juntas, no formato das regras da loja e dos baús (EconomyRules): {gold, inv}.
+func purse() -> Dictionary:
+	return {"gold": gold, "inv": inv}
+
+func set_purse(st: Dictionary) -> void:
+	gold = st.gold
+	inv = st.inv
 
 func heal_all() -> void:
 	for id in party:
@@ -57,6 +88,24 @@ func skip_intro() -> bool:
 
 func text_cps() -> int:
 	return DialogueRules.SPEEDS[options.text_speed]
+
+## Linhas de opções comuns ao título e à pausa: [rótulo, ação]. Cada ação muda a opção e chama `refresh(i)` com o
+## índice da linha, para o menu se refazer com o foco no mesmo lugar.
+func option_rows(refresh: Callable) -> Array:
+	var speeds: Array = DialogueRules.SPEEDS.keys()
+	var rows := [["Texto: " + DialogueRules.SPEED_NAMES[options.text_speed], func():
+		options.text_speed = speeds[(speeds.find(options.text_speed) + 1) % speeds.size()]
+		Save.write()
+		refresh.call(0)]]
+	for o in [["music", "Música"], ["sfx", "Efeitos"]]:
+		var key: String = o[0]
+		var idx := rows.size()
+		rows.append(["%s: %s" % [o[1], AudioRules.level_text(options[key])], func():
+			options[key] = AudioRules.level_next(options[key])
+			Audio.apply_options()
+			Save.write()
+			refresh.call(idx)])
+	return rows
 
 ## Troca de cena com um fade só: escurece, troca, clareia. `black`: já começa no preto (depois de um cartão).
 func goto(path: String, black := false) -> void:

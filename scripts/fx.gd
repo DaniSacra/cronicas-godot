@@ -66,6 +66,19 @@ static func rim_material(cool := Color(0.45, 0.7, 1.0), warm := Color(1.0, 0.55,
 	m.set_shader_parameter("strength", strength)
 	return m
 
+## Sprite provisório (moradores sem arte): o desenho vira silhueta de uma cor só, com o claro e o escuro do original.
+## Fica claro que é provisório e não confunde com o herói de quem o quadro foi emprestado.
+static var _stand_in: Shader
+
+static func stand_in_material(tint: Color) -> ShaderMaterial:
+	if _stand_in == null:
+		_stand_in = Shader.new()
+		_stand_in.code = "shader_type canvas_item;\nuniform vec4 tint : source_color;\nvoid fragment(){ vec4 c = texture(TEXTURE, UV); float l = dot(c.rgb, vec3(0.299, 0.587, 0.114)); COLOR = vec4(tint.rgb * (0.35 + 0.9 * l), c.a); }"
+	var m := ShaderMaterial.new()
+	m.shader = _stand_in
+	m.set_shader_parameter("tint", tint)
+	return m
+
 ## Heróis no desenho novo (assets/heroes2): quadros de 64x64 virados para a direita, o pé fica num ponto fixo.
 const NEW_FEET := {"aldo": Vector2(-38, -62), "lyra": Vector2(-37, -60), "andilla": Vector2(-35, -63), "teo": Vector2(-36, -62)}
 const NEW_ANIMS := [["stance", 8.0, true], ["walk", 14.0, true], ["attack", 14.0, false], ["heavy", 11.0, false], ["cast", 10.0, false],

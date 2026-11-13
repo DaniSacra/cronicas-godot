@@ -1,0 +1,22 @@
+{
+  "scene": "valmor_irene",
+  "lines": [
+    {"id": "g_antes", "if": ["!flag:sineiro_morto", "!flag:falou_irene_antes"], "next": "a01"},
+    {"id": "g_antes_rep", "if": ["!flag:sineiro_morto"], "next": "a_rep"},
+    {"id": "g_depois", "if": ["!flag:falou_irene_depois"], "next": "d01"},
+    {"id": "d_rep", "speaker": "irene", "text": "Sentem. Agora dá tempo de descansar.", "do": ["heal"], "next": "end"},
+
+    {"id": "a01", "speaker": "irene", "text": "O homem ferido ainda delira. O selo... o selo... Só isso."},
+    {"id": "a02", "speaker": "teo", "expr": "preocupado", "text": "A febre baixou, irmã?"},
+    {"id": "a03", "speaker": "irene", "text": "Um pouco. Dele cuido eu. Sentem um instante, ninguém desce cansado."},
+    {"id": "a04", "speaker": "irene", "text": "Vão com a luz de Elun.",
+     "do": ["set:falou_irene_antes"], "next": "end"},
+
+    {"id": "a_rep", "speaker": "irene", "text": "Respirem fundo. A capela fica acesa até vocês voltarem.",
+     "next": "end"},
+
+    {"id": "d01", "speaker": "irene", "text": "Desde que o sino parou, nenhuma cova abriu."},
+    {"id": "d02", "speaker": "irene", "text": "Graças a Elun. E a vocês quatro. Sentem, deixem eu ver esses cortes.",
+     "do": ["heal", "set:falou_irene_depois"], "next": "end"}
+  ]
+}

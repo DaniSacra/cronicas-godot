@@ -1,0 +1,24 @@
+{
+  "scene": "valmor_clara",
+  "lines": [
+    {"id": "g_antes", "if": ["!flag:sineiro_morto", "!flag:falou_clara_antes"], "next": "a01"},
+    {"id": "g_antes_rep", "if": ["!flag:sineiro_morto"], "next": "a_rep"},
+    {"id": "g_depois", "if": ["!flag:falou_clara_depois"], "next": "d01"},
+    {"id": "d_rep", "speaker": "clara", "text": "Vão dormir. Amanhã o Nino vai querer ouvir tudo, e eu também.", "next": "end"},
+
+    {"id": "a01", "speaker": "clara", "text": "Você voltou procurando trabalho, imagino."},
+    {"id": "a02", "speaker": "aldo", "text": "Imagina certo."},
+    {"id": "a03", "speaker": "lyra", "expr": "alegre", "text": "{aldo} vê a professora. {aldo} esquece como se anda."},
+    {"id": "a04", "speaker": "clara", "text": "A escola fica acesa esta noite. As crianças dormem melhor sabendo que tem luz."},
+    {"id": "a05", "speaker": "clara", "text": "Se virem o Nino atrás de algum barril, mandem para casa.",
+     "do": ["set:falou_clara_antes"], "next": "end"},
+
+    {"id": "a_rep", "speaker": "clara", "text": "Cuidem uns dos outros lá embaixo. É só o que eu peço.", "next": "end"},
+
+    {"id": "d01", "speaker": "clara", "text": "O sino parou. As crianças perceberam antes de mim."},
+    {"id": "d02", "speaker": "aldo", "text": "Parou."},
+    {"id": "d03", "speaker": "clara", "text": "Então amanhã tem aula. Obrigada. Aos quatro."},
+    {"id": "d04", "speaker": "andilla", "expr": "alegre", "text": "Ele ia dizer mais alguma coisa. Juro que ia.",
+     "do": ["set:falou_clara_depois"], "next": "end"}
+  ]
+}

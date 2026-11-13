@@ -1,0 +1,23 @@
+{
+  "scene": "valmor_nino",
+  "lines": [
+    {"id": "g_antes", "if": ["!flag:sineiro_morto", "!flag:falou_nino_antes"], "next": "a01"},
+    {"id": "g_antes_rep", "if": ["!flag:sineiro_morto"], "next": "a_rep"},
+    {"id": "g_depois", "if": ["!flag:falou_nino_depois"], "next": "d01"},
+    {"id": "d_rep", "speaker": "nino", "text": "Amanhã eu conto para a escola inteira. Posso dizer que eu ajudei?", "next": "end"},
+
+    {"id": "a01", "speaker": "nino", "text": "A professora disse para eu ficar em casa. Eu estou em casa. Mais ou menos."},
+    {"id": "a02", "speaker": "andilla", "text": "Bom esconderijo. Só o pé está aparecendo."},
+    {"id": "a03", "speaker": "nino", "text": "Vocês vão lá embaixo? De verdade?"},
+    {"id": "a04", "speaker": "aldo", "text": "Para casa, Nino. Agora.",
+     "do": ["set:falou_nino_antes"], "next": "end"},
+
+    {"id": "a_rep", "speaker": "nino", "text": "Eu já vou. Só mais um pouquinho. Daqui dá para ver a torre.",
+     "next": "end"},
+
+    {"id": "d01", "speaker": "nino", "text": "{aldo}! A professora perguntou de você. Duas vezes. Não fala que eu falei."},
+    {"id": "d02", "speaker": "andilla", "expr": "alegre", "text": "Duas vezes. Anotado."},
+    {"id": "d03", "speaker": "aldo", "text": "Para casa, Nino.",
+     "do": ["set:falou_nino_depois"], "next": "end"}
+  ]
+}

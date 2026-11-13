@@ -1,0 +1,23 @@
+{
+  "scene": "valmor_ana",
+  "lines": [
+    {"id": "g_antes", "if": ["!flag:sineiro_morto", "!flag:falou_ana_antes"], "next": "a01"},
+    {"id": "g_antes_rep", "if": ["!flag:sineiro_morto"], "next": "a_rep"},
+    {"id": "g_depois", "if": ["!flag:falou_ana_depois"], "next": "d01"},
+    {"id": "d_rep", "speaker": "ana", "text": "Quatro pescoços, quatro cachecóis. Não me apressem.", "next": "end"},
+
+    {"id": "a01", "speaker": "ana", "text": "Eu já ouvi esse sino. Num inverno que não acabava."},
+    {"id": "a02", "speaker": "lyra", "text": "Faz quanto tempo?"},
+    {"id": "a03", "speaker": "ana", "text": "Cinquenta anos. Eu não falo desse inverno, menina."},
+    {"id": "a04", "speaker": "ana", "text": "Vão com Elun. E voltem todos.",
+     "do": ["set:falou_ana_antes"], "next": "end"},
+
+    {"id": "a_rep", "speaker": "ana", "text": "Quem toca aquele sino não está vivo. Isso eu sei. O resto eu guardo.",
+     "next": "end"},
+
+    {"id": "d01", "speaker": "ana", "text": "O padre Anselmo tocava aquele sino. Agora ele descansa. Graças a Elun."},
+    {"id": "d02", "speaker": "teo", "text": "Descansa, sim, dona Ana."},
+    {"id": "d03", "speaker": "ana", "text": "Então eu posso fiar em paz. Quem anda com espada acaba na estrada, e estrada pede lã.",
+     "do": ["set:falou_ana_depois"], "next": "end"}
+  ]
+}

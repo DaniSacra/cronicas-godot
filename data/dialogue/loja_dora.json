@@ -1,0 +1,31 @@
+{
+  "scene": "loja_dora",
+  "lines": [
+    {"id": "entrada", "if": ["!flag:sineiro_morto", "!flag:falou_dora_antes"], "next": "e_antes"},
+    {"id": "g_antes_rep", "if": ["!flag:sineiro_morto"], "next": "e_antes_rep"},
+    {"id": "g_depois", "if": ["!flag:falou_dora_depois"], "next": "e_depois"},
+    {"id": "e_depois_rep", "speaker": "dora", "text": "Voltaram inteiros. Freguês vivo é o melhor freguês.", "next": "end"},
+
+    {"id": "e_antes", "speaker": "dora", "text": "Aberto, sim. Com esse sino, quem dorme? Entrem, antes que o frio entre junto.",
+     "do": ["set:falou_dora_antes"], "next": "end"},
+    {"id": "e_antes_rep", "speaker": "dora", "text": "Para a igreja velha? Poção primeiro, coragem depois.", "next": "end"},
+    {"id": "e_depois", "speaker": "dora", "text": "Escutem só. Nada. Fazia noites que eu não ouvia nada.",
+     "do": ["set:falou_dora_depois"], "next": "end"},
+
+    {"id": "comprar", "speaker": "dora", "text": "Poção, quinze moedas. Éter, trinta. Pena Vital, oitenta. Fiado, só amanhã.",
+     "next": "end"},
+    {"id": "compra_pocao", "speaker": "dora", "text": "Poção. Fecha o corte e esquenta o peito.", "next": "end"},
+    {"id": "compra_eter", "speaker": "dora", "text": "Éter. Amargo que só. Funciona, não reclamem.", "next": "end"},
+    {"id": "compra_pena", "speaker": "dora", "text": "Pena Vital. Tomara que volte para a prateleira sem uso.", "next": "end"},
+    {"id": "compra_sem_moedas", "speaker": "dora", "text": "Faltam moedas, meu bem. Eu vendo remédio, não milagre.", "next": "end"},
+    {"id": "compra_bolsa_cheia", "speaker": "dora", "text": "Não cabe mais nada nessa bolsa. Usem primeiro, comprem depois.", "next": "end"},
+
+    {"id": "vender", "speaker": "dora", "text": "Compro de volta pela metade. Negócio é negócio.", "next": "end"},
+    {"id": "venda_ok", "speaker": "dora", "text": "Fechado. Metade, como combinado.", "next": "end"},
+    {"id": "venda_nada", "speaker": "dora", "text": "Bolsa vazia não se vende, meu bem.", "next": "end"},
+
+    {"id": "despedida", "speaker": "dora", "text": "Voltem. Freguês morto não paga.",
+     "if": ["!flag:sineiro_morto"], "next": "end"},
+    {"id": "despedida_depois", "speaker": "dora", "text": "Durmam bem. Hoje dá para dormir.", "next": "end"}
+  ]
+}

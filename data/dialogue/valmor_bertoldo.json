@@ -1,0 +1,25 @@
+{
+  "scene": "valmor_bertoldo",
+  "lines": [
+    {"id": "g_antes", "if": ["!flag:sineiro_morto", "!flag:falou_bertoldo_antes"], "next": "a01"},
+    {"id": "g_antes_rep", "if": ["!flag:sineiro_morto"], "next": "a_rep"},
+    {"id": "g_depois", "if": ["!flag:falou_bertoldo_depois"], "next": "d01"},
+    {"id": "d_rep", "speaker": "bertoldo", "text": "Velho não confia em silêncio novo. Vou ficar aqui até clarear.", "next": "end"},
+
+    {"id": "a01", "speaker": "bertoldo", "text": "Quatro. Contei de novo."},
+    {"id": "a02", "speaker": "lyra", "text": "Por que quatro?"},
+    {"id": "a03", "speaker": "bertoldo", "text": "Porque sempre foram quatro. Meu avô dizia assim, e o avô dele."},
+    {"id": "a04", "speaker": "andilla", "text": "E quem está enterrado lá embaixo?"},
+    {"id": "a05", "speaker": "bertoldo", "text": "Esse nome eu não digo aqui em cima."},
+    {"id": "a06", "speaker": "bertoldo", "text": "O sino chama, e os mortos obedecem. Vão antes que ele chame mais um.",
+     "do": ["set:falou_bertoldo_antes"], "next": "end"},
+
+    {"id": "a_rep", "speaker": "bertoldo", "text": "Vão. Cada toque é uma cova a mais.", "next": "end"},
+
+    {"id": "d01", "speaker": "aldo", "text": "O sino calou. Mas o túmulo estava vazio."},
+    {"id": "d02", "speaker": "bertoldo", "text": "Vazio. Então o que eu guardei a vida inteira foi um nome e um buraco."},
+    {"id": "d03", "speaker": "teo", "text": "O senhor guardou a vila. Isso não está vazio."},
+    {"id": "d04", "speaker": "bertoldo", "text": "Alguém maior que um velho precisa saber disso. E logo.",
+     "do": ["set:falou_bertoldo_depois"], "next": "end"}
+  ]
+}

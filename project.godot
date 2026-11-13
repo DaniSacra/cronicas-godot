@@ -6,12 +6,16 @@ config_version=5
 config/name="Crônicas de Eterra (fatia vertical)"
 run/main_scene="res://scenes/title.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
+config/use_custom_user_dir=true
+config/custom_user_dir_name="CronicasDeEterra"
 
 [autoload]
 
 Controls="*res://scripts/controls.gd"
 Game="*res://scripts/game.gd"
 Dialogue="*res://scripts/dialogue.gd"
+Audio="*res://scripts/audio.gd"
+Save="*res://scripts/save.gd"
 
 [display]
 

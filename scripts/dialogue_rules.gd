@@ -7,7 +7,7 @@ const DIR := "res://data/dialogue/"
 const BOX := Vector2(544, 88)
 const LINE_H := 16
 const MAX_LINES := 3
-const TEXT_SIZE := 12                 # tamanho nativo da Pixelify Sans: maiúscula de 9 px, linha de 16
+const TEXT_SIZE := 12                 # tamanho nativo da Tiny5 (UI.BODY_FONT), linha de 16
 const CARD_SIZE := 24                 # cartões em tela cheia: o dobro
 const CARD_W := 480
 const PORTRAIT := 64
@@ -22,6 +22,15 @@ const IF_VERBS := ["flag", "party"]
 const DO_VERBS := ["set", "clear", "join", "battle", "heal", "wait", "emit"]
 const FORBIDDEN := ["velkor", "morvath", "irmandade", "dragã", "dragõ", "dragao", "dragoes"]   # revelação lenta
 const LONG_NAME := "Maximiliano"      # nome mais longo que se aceita no lugar de {aldo}, para medir as falas
+# Escolhas (seção 6 da especificação): até 4 opções de uma linha, painel acima da caixa, alinhado à direita dela
+const MAX_CHOICES := 4
+const CHOICE_CHARS := 28
+const CHOICE_ROW_TOUCH := 44
+const CHOICE_ROW_KEYS := 26
+const CHOICE_PAD := 6
+const CHOICE_GAP := 6                 # entre o painel e a caixa
+const CHOICE_W := Vector2(160, 300)   # largura mínima e máxima no teclado (no toque, a letra dobra e o teto também)
+const CHOICE_GUARD := 0.25            # quem estava pulando texto não escolhe sem querer
 
 static func load_json(path: String) -> Variant:
 	if not FileAccess.file_exists(path):
@@ -175,6 +184,68 @@ static func touch_spots(box: Rect2, top: bool, menu: Vector2, r: float) -> Array
 static func key(scene: String, id: String) -> String:
 	return "dlg.%s.%s" % [scene, id]
 
+# ---------- escolhas ----------
+
+## Opções que aparecem: as que passam no `if` (opção bloqueada some, não fica cinza).
+static func choices_for(line: Dictionary, flags: Dictionary, party: Array) -> Array:
+	return line.get("choices", []).filter(func(c): return check(c.get("if", []), flags, party))
+
+## Índice da opção marcada com "cancel" (cancel escolhe ela), ou -1.
+static func cancel_choice(choices: Array) -> int:
+	for i in choices.size():
+		if choices[i].get("cancel", false):
+			return i
+	return -1
+
+## Linha depois da escolha: o `next` da opção ("end" encerra) ou a seguinte da pergunta.
+static func choice_next(lines: Array, i: int, choice: Dictionary) -> int:
+	var nx: String = choice.get("next", "")
+	if nx == "end":
+		return -1
+	if nx != "":
+		return index_of(lines, nx)
+	return after(lines, i)
+
+static func choice_row_h(touch: bool) -> int:
+	return CHOICE_ROW_TOUCH if touch else CHOICE_ROW_KEYS
+
+## Largura do painel: a opção mais longa + 40, entre 160 e 300 (o dobro do teto no toque, sem passar da caixa).
+static func choice_width(texts: Array, font: Font, size: int) -> float:
+	var w := 0.0
+	for tx in texts:
+		w = maxf(w, font.get_string_size(String(tx), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x)
+	return clampf(w + 40.0, CHOICE_W.x, minf(CHOICE_W.y * size / TEXT_SIZE, BOX.x))
+
+## Painel das escolhas: borda direita na da caixa; acima dela (6 px) com a caixa embaixo, abaixo com a caixa em cima.
+static func choice_rect(box: Rect2, top: bool, n: int, row_h: int, width: float) -> Rect2:
+	var h := n * row_h + 2 * CHOICE_PAD
+	var y := box.end.y + CHOICE_GAP if top else box.position.y - CHOICE_GAP - h
+	return Rect2(box.end.x - width, y, width, h)
+
+## Texto de uma fala a partir de um id de entrada, seguindo as condições (a primeira linha válida dali em diante).
+## Serve para falas curtas fora da caixa (a Dora na loja). "" se não houver.
+static func line_text(scene: String, from: String, flags: Dictionary, party: Array) -> String:
+	var lines: Array = load_scene(scene).get("lines", [])
+	var i := first_valid(lines, index_of(lines, from), flags, party)
+	while i != -1 and not lines[i].has("text"):
+		i = first_valid(lines, after(lines, i), flags, party)
+	return String(lines[i].text) if i != -1 else ""
+
+## Passa por uma cena sem tela, como o Dialogue faria (sem escolhas): devolve as falas mostradas ("lines") e os
+## eventos que não são de flag ("events"); `flags` sai com os set e clear aplicados. Usado nos testes das conversas.
+static func dry_run(scene: String, flags: Dictionary, party: Array, from := "") -> Dictionary:
+	var lines: Array = load_scene(scene).get("lines", [])
+	var shown := []
+	var events := []
+	var i := first_valid(lines, index_of(lines, from) if from != "" else 0, flags, party)
+	while i != -1 and shown.size() < 100:
+		var ln: Dictionary = lines[i]
+		if ln.has("text"):
+			shown.append(ln)
+		events.append_array(apply_events(ln.get("do", []), flags))
+		i = first_valid(lines, after(lines, i), flags, party)
+	return {"lines": shown, "events": events}
+
 ## Erros de um arquivo de cena. `font`: fonte do corpo; `portrait_ok(id)`: o falante tem retrato.
 static func validate(data: Dictionary, spk: Dictionary, font: Font, portrait_ok: Callable) -> Array:
 	var errs := []
@@ -191,7 +262,7 @@ static func validate(data: Dictionary, spk: Dictionary, font: Font, portrait_ok:
 		if nx != "" and nx != "end" and index_of(lines, nx) == -1:
 			errs.append("%s: next '%s' não existe" % [id, nx])
 		if ln.has("choices"):
-			errs.append("%s: escolhas ainda não existem na fatia" % id)
+			errs.append_array(choice_errors(id, ln, lines, font))
 		for c in ln.get("if", []):
 			if not String(c).trim_prefix("!").split(":")[0] in IF_VERBS:
 				errs.append("%s: condição desconhecida '%s'" % [id, c])
@@ -215,6 +286,42 @@ static func validate(data: Dictionary, spk: Dictionary, font: Font, portrait_ok:
 		var n := wrap_lines(shown, font, text_size(s), text_width(s)).size()
 		if n > MAX_LINES:
 			errs.append("%s: %d linhas (máximo %d)" % [id, n, MAX_LINES])
+	return errs
+
+## Escolhas: de 1 a 4 opções, ids únicos, texto de uma linha (até 28 letras), next que existe, verbos conhecidos e no
+## máximo uma opção de cancel.
+static func choice_errors(id: String, ln: Dictionary, lines: Array, font: Font) -> Array:
+	var errs := []
+	var cs: Variant = ln.choices
+	if not cs is Array or cs.is_empty():
+		return ["%s: escolhas vazias" % id]
+	if cs.size() > MAX_CHOICES:
+		errs.append("%s: %d opções (máximo %d)" % [id, cs.size(), MAX_CHOICES])
+	if not ln.has("text"):
+		errs.append("%s: escolha sem pergunta" % id)
+	var seen := {}
+	var cancels := 0
+	for c in cs:
+		var cid := "%s.%s" % [id, c.get("id", "")]
+		if String(c.get("id", "")) == "" or seen.has(cid):
+			errs.append("%s: id de opção vazio ou repetido" % cid)
+		seen[cid] = true
+		var text := String(c.get("text", ""))
+		if text == "" or text.length() > CHOICE_CHARS:
+			errs.append("%s: opção com %d letras (de 1 a %d)" % [cid, text.length(), CHOICE_CHARS])
+		errs.append_array(text_errors(cid, text, font))
+		var nx: String = c.get("next", "")
+		if nx != "" and nx != "end" and index_of(lines, nx) == -1:
+			errs.append("%s: next '%s' não existe" % [cid, nx])
+		for k in c.get("if", []):
+			if not String(k).trim_prefix("!").split(":")[0] in IF_VERBS:
+				errs.append("%s: condição desconhecida '%s'" % [cid, k])
+		for e in c.get("do", []):
+			if not String(e).split(":")[0] in DO_VERBS:
+				errs.append("%s: evento desconhecido '%s'" % [cid, e])
+		cancels += int(c.get("cancel", false))
+	if cancels > 1:
+		errs.append("%s: mais de uma opção de cancel" % id)
 	return errs
 
 ## Travessão, nomes proibidos e letras que a fonte não tem.

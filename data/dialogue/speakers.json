@@ -5,5 +5,15 @@
   "andilla":  {"name": "Andilla", "side": "left",  "color": "#9fd8ff", "portrait": true},
   "sineiro":  {"name": "O Sineiro", "side": "right", "color": "#c9b27a", "portrait": false},
   "narrador": {"name": "", "portrait": false},
-  "cartao":   {"name": "", "portrait": false, "card": true}
+  "cartao":   {"name": "", "portrait": false, "card": true},
+
+  "hugo":     {"name": "Hugo",       "side": "right", "color": "#e6e9f5", "portrait": false},
+  "berta":    {"name": "Berta",      "side": "right", "color": "#e6e9f5", "portrait": false},
+  "ana":      {"name": "Ana",        "side": "right", "color": "#e6e9f5", "portrait": false},
+  "irene":    {"name": "Irmã Irene", "side": "right", "color": "#e6e9f5", "portrait": false},
+  "nino":     {"name": "Nino",       "side": "right", "color": "#e6e9f5", "portrait": false},
+  "bertoldo": {"name": "Bertoldo",   "side": "right", "color": "#e6e9f5", "portrait": false},
+  "clara":    {"name": "Clara",      "side": "right", "color": "#e6e9f5", "portrait": false},
+  "tobias":   {"name": "Tobias",     "side": "right", "color": "#e6e9f5", "portrait": false},
+  "dora":     {"name": "Dora",       "side": "right", "color": "#e6e9f5", "portrait": false}
 }

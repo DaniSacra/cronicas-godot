@@ -1,0 +1,26 @@
+{
+  "scene": "valmor_berta",
+  "lines": [
+    {"id": "g_antes", "if": ["!flag:sineiro_morto", "!flag:falou_berta_antes"], "next": "a01"},
+    {"id": "g_antes_rep", "if": ["!flag:sineiro_morto"], "next": "a_rep"},
+    {"id": "g_depois", "if": ["!flag:falou_berta_depois"], "next": "d01"},
+    {"id": "g_rei", "if": ["!flag:falou_berta_rei"], "next": "r01"},
+    {"id": "d_rep", "speaker": "berta", "text": "A sopa esfria e a conversa não enche barriga. Comam.", "next": "end"},
+
+    {"id": "a01", "speaker": "berta", "text": "Sopa só para quem volta. Então voltem."},
+    {"id": "a02", "speaker": "andilla", "text": "Isso é convite ou ameaça?"},
+    {"id": "a03", "speaker": "berta", "text": "É panela no fogo, menina. Andem.",
+     "do": ["set:falou_berta_antes"], "next": "end"},
+
+    {"id": "a_rep", "speaker": "berta", "text": "A porta fica destrancada. Batam a neve da bota antes de entrar.",
+     "next": "end"},
+
+    {"id": "d01", "speaker": "berta", "text": "Sentem. Hoje ninguém paga."},
+    {"id": "d02", "speaker": "andilla", "expr": "alegre", "text": "Ninguém paga. Gostei desta vila.",
+     "do": ["set:falou_berta_depois"], "next": "end"},
+
+    {"id": "r01", "speaker": "aldo", "text": "O túmulo lá embaixo estava vazio, Berta."},
+    {"id": "r02", "speaker": "berta", "text": "Vazio? Então quem é que anda por aí com um rei?",
+     "do": ["set:falou_berta_rei"], "next": "end"}
+  ]
+}

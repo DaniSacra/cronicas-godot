@@ -1,0 +1,14 @@
+{
+  "scene": "loja_dora_menu",
+  "lines": [
+    {"id": "menu", "speaker": "dora", "text": "O que vai ser?",
+     "choices": [
+       {"id": "comprar", "text": "Comprar", "next": "abre_compra"},
+       {"id": "vender", "text": "Vender", "next": "abre_venda"},
+       {"id": "sair", "text": "Sair", "next": "sai", "cancel": true}
+     ]},
+    {"id": "abre_compra", "do": ["emit:loja_comprar"], "next": "end"},
+    {"id": "abre_venda", "do": ["emit:loja_vender"], "next": "end"},
+    {"id": "sai", "do": ["emit:loja_sair"], "next": "end"}
+  ]
+}

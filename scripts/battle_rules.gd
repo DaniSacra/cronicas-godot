@@ -3,6 +3,7 @@ extends RefCounted
 ## Regras da batalha, em funções puras (sem cena, sem sorteio escondido), portadas de src/party.js do jogo em JS.
 ## O sorteio entra por parâmetro para os testes serem exatos.
 
+const E := preload("res://scripts/economy_rules.gd")
 const GUARD_MAX := 80.0
 const GUARD_HALF := 55.0
 
@@ -34,7 +35,7 @@ const SKILLS := {
 const ENERGY := {"max": 100, "start": 10, "attack": 15, "defend": 10, "hurt": 8}
 
 # O Sineiro (src/data.js)
-const SINEIRO := {"name": "O Sineiro", "hp": 900, "atk": 30, "def": 25, "res": 10, "agi": 11, "undead": true}
+const SINEIRO := {"name": "O Sineiro", "hp": 1010, "atk": 39, "def": 25, "res": 10, "agi": 11, "undead": true}
 
 const ORDER := ["aldo", "lyra", "teo", "andilla"]     # ordem fixa da rodada
 
@@ -127,8 +128,8 @@ static func boss_turn(state: Dictionary, hp_frac: float) -> String:
 	return move
 
 const RAGE_MULT := 1.25          # furioso, todo golpe do chefe sai 25% mais forte
-const BELL_RAW := 20.0           # Badalada: dano mágico em todos
-const DRAIN_RAW := 24.0          # Dobre fúnebre: dano mágico em um, e o chefe se cura
+const BELL_RAW := 34.0           # Badalada: dano mágico em todos
+const DRAIN_RAW := 41.0          # Dobre fúnebre: dano mágico em um, e o chefe se cura
 const DRAIN_HEAL := 1.0          # o dobre devolve ao chefe todo o dano que causa
 
 static func boss_atk(base_atk: float, enraged: bool) -> float:
@@ -146,9 +147,12 @@ static func drain_damage(res: float, v := 1.0) -> int:
 static func drain_heal(dmg: int) -> int:
 	return int(dmg * DRAIN_HEAL)
 
-## Dano que o herói recebe de fato: defender corta pela metade.
-static func taken(dmg: int, defending: bool) -> int:
-	return maxi(1, dmg / 2) if defending else dmg
+## Dano que o herói recebe de fato: defender corta pela metade, e bloquear no tempo certo corta outra metade.
+static func taken(dmg: int, defending: bool, blocked := false) -> int:
+	for cut in [defending, blocked]:
+		if cut:
+			dmg = maxi(1, dmg / 2)
+	return dmg
 
 ## Energia depois de uma ação ("attack", "defend" ou "hurt"). Só Aldo e Andilla têm energia; apanhar só enche a do Aldo.
 static func energy_after(hero_id: String, en: int, reason: String) -> int:
@@ -161,9 +165,19 @@ const CHARGE_BONUS := 0.3        # dano extra com a carga cheia (segure confirm)
 static func charged(dmg: int, full: float) -> int:
 	return int(dmg * (1.0 + CHARGE_BONUS * full))
 
-## Ataque básico de um herói no Sineiro.
-static func attack_damage(atk: float, v := 1.0) -> int:
-	return phys_dmg(atk, SINEIRO.def, 1.0, v)
+## Ataque básico de um herói no Sineiro. `timed`: apertou no impacto.
+static func attack_damage(atk: float, v := 1.0, timed := false) -> int:
+	return phys_dmg(atk, SINEIRO.def, 1.0 + (TIMED_BONUS if timed else 0.0), v)
+
+# ---------- ação no tempo certo (ataque e bloqueio, como em Sea of Stars) ----------
+const TIMED_EARLY_MS := 60       # janela de 150 ms: um pouco antes do impacto e um pouco mais depois,
+const TIMED_LATE_MS := 90        # porque a imagem chega à tela com atraso e quem aperta tende a atrasar
+const TIMED_BONUS := 0.5         # ataque no tempo certo: +50% de dano e +1 ponto de combo
+const AUTO_TIMED := 0.5          # o --auto acerta metade, para o balanceamento valer para quem joga razoável
+
+## O aperto valeu? `press_ms` é o primeiro aperto desde que a ação começou (-1 se nenhum); só ele conta.
+static func timed_ok(press_ms: int, impact_ms: int) -> bool:
+	return press_ms >= 0 and press_ms >= impact_ms - TIMED_EARLY_MS and press_ms <= impact_ms + TIMED_LATE_MS
 
 static func can_pay(skill: Dictionary, mp: int, en: int) -> bool:
 	return (mp if skill.cost_kind == "mp" else en) >= skill.cost
@@ -176,13 +190,18 @@ const COMBOS := {
 	"escudo": {"name": "Escudo de Luz", "cost": 4, "members": ["teo", "lyra"], "heal": 0.4, "desc": "Cura o grupo e levanta a guarda de todos."},
 }
 
-const COMBO_FROM := {"attack": 1, "skill": 1, "defend": 1}   # pontos que cada tipo de ação dá
+# Pontos só de ataque básico (e de acerto no tempo certo): defender, técnica, magia e cura não dão nada.
+const COMBO_FROM := {"attack": 1, "timed": 1}
 
 static func combo_gain(points: int, amount := 1) -> int:
 	return clampi(points + amount, 0, COMBO_MAX)
 
 static func combo_points(action: String) -> int:
 	return int(COMBO_FROM.get(action, 0))
+
+## Combos que aparecem no menu deste herói: só os de que ele participa.
+static func combos_of(hero_id: String) -> Array:
+	return COMBOS.keys().filter(func(id): return hero_id in COMBOS[id].members)
 
 static func combo_ready(id: String, points: int, alive: Array) -> bool:
 	var c: Dictionary = COMBOS[id]
@@ -205,22 +224,30 @@ static func boss_forecast(state: Dictionary, n := 3) -> Array:
 # ---------- jogada automática (--auto e simulador) ----------
 const AUTO_SHIELD_BELOW := 0.6   # Escudo de Luz quando 2 ou mais estão abaixo disto
 const AUTO_HEAL_BELOW := 0.45    # Cura em quem está abaixo disto
+const AUTO_POTION_BELOW := 0.3   # Poção em quem está abaixo disto, se o herói não tem Cura para pagar
 
 ## Vivos na ordem da rodada. `party`: id -> {hp, hpmax, mp, en}.
 static func alive_ids(party: Dictionary) -> Array:
 	return ORDER.filter(func(id): return party.has(id) and party[id].hp > 0)
 
-## O que o herói `hid` faz no --auto: Escudo se 2 ou mais estão fracos, Corte Duplo sempre que dá,
-## Cura em quem está mal, a primeira técnica que dá para pagar, senão ataque.
-static func auto_choice(hid: String, party: Dictionary, combo: int, boss := {}) -> Dictionary:
+## O que o herói `hid` faz no --auto: Pena Vital em quem caiu, Escudo se 2 ou mais estão fracos, Corte Duplo
+## sempre que dá, Cura em quem está mal (ou Poção, se não tem Cura), a primeira técnica que dá para pagar, senão ataque.
+static func auto_choice(hid: String, party: Dictionary, combo: int, boss := {}, bag := {}) -> Dictionary:
 	var alive := alive_ids(party)
+	if E.usable(bag, "pena", party, ORDER):
+		return {"type": "item", "id": "pena", "target": E.targets("pena", party, ORDER)[0]}
 	var below := func(f: float) -> Array: return alive.filter(func(id): return party[id].hp < party[id].hpmax * f)
-	if below.call(AUTO_SHIELD_BELOW).size() >= 2 and combo_ready("escudo", combo, alive):
+	var mine := combos_of(hid)
+	if "escudo" in mine and below.call(AUTO_SHIELD_BELOW).size() >= 2 and combo_ready("escudo", combo, alive):
 		return {"type": "combo", "id": "escudo"}
-	if combo_ready("corte", combo, alive):
+	if "corte" in mine and combo_ready("corte", combo, alive):
 		return {"type": "combo", "id": "corte"}
 	var h: Dictionary = party[hid]
 	var hurt: Array = below.call(AUTO_HEAL_BELOW)
+	var can_cure: bool = HEROES[hid].skills.any(func(sid): return SKILLS[sid].kind == "heal" and can_pay(SKILLS[sid], h.mp, h.en))
+	var low: Array = below.call(AUTO_POTION_BELOW)
+	if not can_cure and not low.is_empty() and int(bag.get("pocao", 0)) > 0:
+		return {"type": "item", "id": "pocao", "target": low[0]}
 	# Gelo só quando a próxima é a Badalada e o chefe pode congelar; fora isso, a primeira técnica que dá para pagar
 	var bell_next: bool = not boss.is_empty() and can_freeze(boss) and boss_forecast(boss)[0] == "bell"
 	for sid in HEROES[hid].skills:

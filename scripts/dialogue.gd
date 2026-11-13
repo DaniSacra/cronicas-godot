@@ -3,9 +3,13 @@ extends CanvasLayer
 ## `await Dialogue.play("cena")` mostra as falas de data/dialogue/cena.json e devolve os eventos que a cena trata
 ## (por exemplo "battle:sineiro"). Regras puras em DialogueRules. Não pausa a árvore: quem chama checa is_open().
 ## Entrada só por Controls: confirm completa a fala ou avança; cancel volta para a fala anterior.
+## Escolhas (até 4): painel acima da caixa, alinhado à direita dela, depois que a pergunta termina de digitar. Setas
+## andam, confirm escolhe, cancel escolhe a opção marcada "cancel" (se houver). No toque, tocar a linha escolhe.
+## Depois de uma escolha, cancel não volta para antes dela.
 
 signal event(name: String)            # eventos "emit:<nome>" das falas
 signal _advance
+signal _chosen(index: int)
 
 const R := preload("res://scripts/dialogue_rules.gd")
 const BG := Color("#0e1428e0")
@@ -42,6 +46,11 @@ var on_top := false
 var t := 0.0
 var scene_name := ""
 var cover_tw: Tween
+var last_click := 0.0
+var choice_panel: PanelContainer
+var choice_box: VBoxContainer
+var choosing: Array = []              # opções abertas agora (vazio: sem escolha)
+var choice_at := 0.0                  # quando o painel abriu (CHOICE_GUARD)
 
 func _ready() -> void:
 	layer = 22
@@ -93,6 +102,17 @@ func _ready() -> void:
 	plate.add_theme_stylebox_override("panel", ps)
 	plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(plate)
+	choice_panel = PanelContainer.new()
+	choice_panel.theme = UI.menu_theme()
+	var cs := UI.panel_style(BORDER, 1, BG)
+	cs.set_content_margin_all(R.CHOICE_PAD)
+	cs.set_corner_radius_all(3)
+	choice_panel.add_theme_stylebox_override("panel", cs)
+	add_child(choice_panel)
+	choice_box = VBoxContainer.new()
+	choice_box.add_theme_constant_override("separation", 0)
+	choice_panel.add_child(choice_box)
+	Controls.touch_mode_changed.connect(func(_on): if not choosing.is_empty(): _build_choices())
 	plate_label = UI.label("", R.TEXT_SIZE, Color.WHITE, 0)
 	plate_label.custom_minimum_size.y = 16
 	plate_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -116,6 +136,7 @@ func _hide_all() -> void:
 	cover.hide()
 	box.hide()
 	plate.hide()
+	choice_panel.hide()
 
 ## A conversa está na tela (ou acabou de fechar neste quadro: o confirm que fechou não vale para a cena).
 func is_open() -> bool:
@@ -150,19 +171,85 @@ func play(scene: String, from := "") -> Array:
 		var ln: Dictionary = lines[i]
 		if ln.has("text"):
 			_show_line(ln)
-		for e in R.apply_events(ln.get("do", []), Game.flags):
-			var p := String(e).split(":", true, 1)
-			match p[0]:
-				"wait": await get_tree().create_timer(float(p[1]), false).timeout
-				"heal": Game.heal_all()
-				"emit": event.emit(p[1])
-				"join": pass             # o grupo da fatia já está completo
-				_: out.append(e)
+		await _run_events(ln.get("do", []), out)
+		var opts := R.choices_for(ln, Game.flags, Game.party.keys()) if ln.has("text") else []
+		if not opts.is_empty():
+			var c: Dictionary = opts[await _choose(opts)]
+			await _run_events(c.get("do", []), out)
+			history.clear()               # cancel não volta para antes da escolha
+			hist_pos = -1
+			i = R.choice_next(lines, i, c)
+			continue
 		if ln.has("text"):
 			await _advance
 		i = R.after(lines, i)
 	_close()
 	return out
+
+## Eventos `do` de uma fala ou de uma opção: os de jogo rodam aqui, os outros vão para `out` (a cena trata).
+func _run_events(evs: Array, out: Array) -> void:
+	for e in R.apply_events(evs, Game.flags):
+		var p := String(e).split(":", true, 1)
+		match p[0]:
+			"wait": await get_tree().create_timer(float(p[1]), false).timeout
+			"heal": Game.heal_all()
+			"emit": event.emit(p[1])
+			"join": pass             # o grupo da fatia já está completo
+			_: out.append(e)
+
+## Espera a pergunta terminar de digitar, abre o painel e devolve o índice da opção escolhida.
+func _choose(opts: Array) -> int:
+	while typing or hist_pos < history.size() - 1:
+		await get_tree().process_frame
+	choosing = opts
+	choice_at = t
+	_build_choices()
+	var idx: int = await _chosen
+	choosing = []
+	choice_panel.hide()
+	opened_at = t                     # o aperto que escolheu não pula a fala seguinte
+	return idx
+
+## Monta as linhas (44 px no toque, 26 no teclado) e põe o painel acima ou abaixo da caixa.
+func _build_choices(focus := 0) -> void:
+	for ch in choice_box.get_children():
+		choice_box.remove_child(ch)
+		ch.queue_free()
+	var touch := Controls.is_touch
+	var row_h := R.choice_row_h(touch)
+	var size := UI.TEXT_TOUCH if touch else R.TEXT_SIZE
+	var texts := choosing.map(func(c): return R.fill(String(c.text), Game.names))
+	var w := R.choice_width(texts, UI.body_font(), size)
+	var rows: Array = []
+	for i in choosing.size():
+		var b := UI.menu_button(texts[i], func(): _pick(i), false, touch)
+		b.custom_minimum_size = Vector2(w - 2 * R.CHOICE_PAD, row_h)
+		var cur := TextureRect.new()
+		cur.texture = UI.icon("cursor")
+		cur.position = Vector2(4, (row_h - 7) / 2.0)
+		cur.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		cur.hide()
+		b.add_child(cur)
+		b.focus_entered.connect(cur.show)
+		b.focus_exited.connect(cur.hide)
+		choice_box.add_child(b)
+		rows.append(b)
+	for i in rows.size():                 # setas dão a volta e o foco não sai do painel
+		var b: Button = rows[i]
+		b.focus_neighbor_top = b.get_path_to(rows[(i - 1 + rows.size()) % rows.size()])
+		b.focus_neighbor_bottom = b.get_path_to(rows[(i + 1) % rows.size()])
+		b.focus_neighbor_left = b.get_path()
+		b.focus_neighbor_right = b.get_path()
+	var r := R.choice_rect(box_rect(), on_top, rows.size(), row_h, w)
+	choice_panel.position = r.position
+	choice_panel.size = r.size
+	choice_panel.show()
+	rows[clampi(focus, 0, rows.size() - 1)].grab_focus.call_deferred()
+
+func _pick(i: int) -> void:
+	if choosing.is_empty() or t - choice_at < R.CHOICE_GUARD:
+		return
+	_chosen.emit(i)
 
 func _show_line(ln: Dictionary) -> void:
 	if not open:
@@ -275,12 +362,22 @@ func _process(delta: float) -> void:
 	if typing:
 		clock += delta
 		var cps := Game.text_cps()
+		var before := shown
 		while shown < plain.length() and clock >= R.char_time(plain, shown, cps):
 			clock -= R.char_time(plain, shown, cps)
 			shown += 1
+		# clique baixo da digitação, só nas falas (o cartão é silencioso) e com intervalo mínimo
+		if shown > before and box.visible and AudioRules.click_due(plain[shown - 1], t - last_click):
+			last_click = t
+			Audio.sfx("digitar", AudioRules.CLICK_DB, randf_range(0.94, 1.06))
 		typing = shown < plain.length()
 		target.visible_characters = shown
-	arrow.visible = not typing
+	arrow.visible = not typing and choosing.is_empty()
+	if not choosing.is_empty():
+		if Input.is_action_just_pressed("cancel") and R.cancel_choice(choosing) != -1 and t - choice_at >= R.CHOICE_GUARD:
+			UI.play("voltar")
+			_chosen.emit(R.cancel_choice(choosing))
+		return
 	arrow.position.y = (R.BOX.y - 14 if arrow.get_parent() == box else UI.safe_rect(get_viewport()).end.y - 12) + (2.0 if fmod(t, 1.0) < 0.5 else 0.0)
 	if Input.is_action_just_pressed("confirm") and R.accepts_confirm(t - opened_at):
 		if typing:

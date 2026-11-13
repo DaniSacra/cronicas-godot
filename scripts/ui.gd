@@ -10,8 +10,7 @@ const PANEL_BG := Color(0.04, 0.05, 0.12, 0.86)
 const PANEL_BORDER := Color(0.55, 0.65, 0.95, 0.8)
 const FOCUS_BG := Color("#2a5a9a")
 const TEXT_TOUCH := 24               # menus no toque: o dobro do tamanho nativo
-# Números (PV, dano, custos) na Press Start 2P (OFL): na Pixelify Sans o "5" e o "9" parecem "S".
-# Tamanho nativo 8 (maiúscula de 7 px, como a Pixelify em 12) e o dobro, 16.
+# Números de cartas e custos (PV, dano, custos) na Press Start 2P (OFL), em 8 (nativo) e no dobro, 16.
 const NUM_FONT := "res://assets/ui/PressStart2P.ttf"
 
 ## Área útil da tela: o retângulo visível menos SAFE e menos o recorte do aparelho (câmera, cantos), já em pixels lógicos.
@@ -46,14 +45,16 @@ static func label(text := "", size := 12, color := Color.WHITE, outline := 2) ->
 	l.add_theme_constant_override("outline_size", outline)
 	return l
 
-## Fonte pixel do corpo do texto (Pixelify Sans, OFL), com todos os acentos do português.
-## A Eterra UI (assets/ui/eterra_ui.ttf, Pixel Lab) não tem acentos e fica fora do corpo.
-const BODY_FONT := "res://assets/ui/PixelifySans.ttf"
+## Fonte pixel do corpo do texto (Tiny5, OFL), com todos os acentos do português. Trocou a Pixelify Sans em 13/11:
+## em 12 px o "5" dela lia "S" e o "T" lia seta. A Eterra UI (assets/ui/eterra_ui.ttf, Pixel Lab) não tem acentos.
+const BODY_FONT := "res://assets/ui/Tiny5.ttf"
+
+const SPACE_EXTRA := 1               # espaço entre palavras um pixel mais largo: em 12 px a frase respira
 
 static var _body: FontVariation
 static var _num: FontFile
 
-## A fonte do corpo como o jogo usa (sem suavização; em 12 px o espaço some, o espaçamento extra o devolve).
+## A fonte do corpo como o jogo usa (sem suavização, sem fonte do sistema no lugar de letra que falte).
 ## Os testes medem as falas com esta mesma fonte.
 static func body_font() -> FontVariation:
 	if _body == null:
@@ -61,9 +62,12 @@ static func body_font() -> FontVariation:
 		f.antialiasing = TextServer.FONT_ANTIALIASING_NONE
 		f.hinting = TextServer.HINTING_NONE
 		f.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+		f.allow_system_fallback = false
 		_body = FontVariation.new()
 		_body.base_font = f
-		_body.spacing_space = 3
+		_body.spacing_space = SPACE_EXTRA
+		# sem ligaduras: uma ligadura "fi" em 12 px se lia "A" ("fim" virava "Am")
+		_body.opentype_features = {TextServerManager.get_primary_interface().name_to_tag("liga"): 0}
 	return _body
 
 static func num_font() -> FontFile:
@@ -90,6 +94,17 @@ static func panel_style(border := PANEL_BORDER, bw := 1, bg := PANEL_BG) -> Styl
 	return s
 
 static var _theme: Theme
+# Som da interface: o autoload Audio preenche (aqui não se lê o autoload, para o script rodar nos testes).
+static var sound := Callable()
+
+static func play(name: String) -> void:
+	if sound.is_valid():
+		sound.call(name)
+
+## O foco mudou porque o jogador andou no menu (setas, analógico), não porque a cena marcou a primeira linha.
+static func navigated() -> bool:
+	return ["ui_up", "ui_down", "ui_left", "ui_right", "ui_focus_next", "ui_focus_prev"].any(
+		func(a): return Input.is_action_just_pressed(a))
 
 ## Tema dos menus: texto à esquerda, linha marcada em azul, espaço para o cursor, opção apagada em 35%.
 static func menu_theme() -> Theme:
@@ -127,8 +142,18 @@ static func menu_button(text: String, cb: Callable, disabled := false, touch := 
 	b.focus_mode = Control.FOCUS_ALL
 	if touch:
 		b.add_theme_font_size_override("font_size", TEXT_TOUCH)
+	# som: confirmar (ou voltar, na linha Voltar) ao apertar, cursor ao andar, negado na opção apagada
+	b.pressed.connect(func(): play("voltar" if text == "Voltar" else "confirmar"))
 	b.pressed.connect(cb)
-	b.mouse_entered.connect(func(): if not b.disabled: b.grab_focus())
+	b.focus_entered.connect(func(): if navigated(): play("cursor"))
+	b.gui_input.connect(func(e: InputEvent):
+		if b.disabled and (e.is_action_pressed("ui_accept") or (e is InputEventMouseButton and e.pressed)):
+			play("negado"))
+	b.mouse_entered.connect(func():
+		if not b.disabled and not b.has_focus():
+			if not touch:
+				play("cursor")             # no toque o dedo que entra já é o aperto: só o confirmar soa
+			b.grab_focus())
 	if value != "":
 		# medidas pelas próprias fontes: fora da árvore o Label ainda não enxerga a fonte sobreposta
 		var nsize := 16 if touch else 8
@@ -147,6 +172,26 @@ static func menu_button(text: String, cb: Callable, disabled := false, touch := 
 		b.custom_minimum_size.x = 14 + tw + 12 + nw + 8
 	return b
 
+## Moedas: ícone e número (fonte de números). Aparece só no menu, na loja, no baú e na vitória (economy-designer).
+static func coins_row(gold := 0) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 4)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var ic := TextureRect.new()
+	ic.texture = icon("coin")
+	ic.custom_minimum_size = Vector2(16, 16)
+	ic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(ic)
+	var n := num_label("", 8)
+	n.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	n.custom_minimum_size.y = 16
+	row.add_child(n)
+	set_coins(row, gold)
+	return row
+
+static func set_coins(row: HBoxContainer, gold: int) -> void:
+	(row.get_child(1) as Label).text = str(gold)
+
 ## Centros dos botões A e B do toque numa tela visível `s`: zonas de toque (1,5x o raio de 22) sem parte em comum.
 static func ab_spots(s: Vector2) -> Array:
 	return [Vector2(s.x - 48, s.y - 80), Vector2(s.x - 106, s.y - 42)]
@@ -157,8 +202,9 @@ static func tap_confirms(armed: String, key: String, touch: bool) -> bool:
 	return not touch or armed == key
 
 ## Itens do menu de pausa: "Sair" some na web e no celular; "Tela cheia" some no celular (já é tela cheia).
+## "Opções" (texto, música, efeitos) vale em todo aparelho.
 static func pause_items(web: bool, mobile: bool) -> Array:
-	var items := ["Continuar"]
+	var items := ["Continuar", "Opções"]
 	if not mobile:
 		items.append("Tela cheia")
 	if not web and not mobile:
@@ -270,6 +316,57 @@ const ICONS := {
 		"................",
 		"................",
 		"................"],
+	"coin": [   # moeda
+		"................",
+		"................",
+		".....oooooo.....",
+		"....oxxxxxxo....",
+		"...oxhhxxxxxo...",
+		"..oxhxxooxxxxo..",
+		"..oxhxoxxoxxxo..",
+		"..oxhxoxxxxxxo..",
+		"..oxhxoxxoxxxo..",
+		"..oxxxxooxxxxo..",
+		"...oxxxxxxxxo...",
+		"....oxxxxxxo....",
+		".....oooooo.....",
+		"................",
+		"................",
+		"................"],
+	"chest": [   # baú fechado (16x13 embaixo)
+		"................",
+		"................",
+		"................",
+		"..oooooooooooo..",
+		".ohhhhhhhhhhhho.",
+		".ohxxxxxxxxxxxo.",
+		".oxxxxxxxxxxxxo.",
+		".oooooohhoooooo.",
+		".oxxxxxohoxxxxo.",
+		".oxxxxxooxxxxxo.",
+		".ohxxxxxxxxxxxo.",
+		".ohxxxxxxxxxxxo.",
+		".oxxxxxxxxxxxxo.",
+		".oxxxxxxxxxxxxo.",
+		".oooooooooooooo.",
+		"................"],
+	"chest_open": [   # baú aberto, vazio
+		"................",
+		"..oooooooooooo..",
+		".oxxxxxxxxxxxxo.",
+		".oxhhhhhhhhhhxo.",
+		".oooooooooooooo.",
+		".o............o.",
+		".oxooooooooooxo.",
+		".oxxxxxxxxxxxxo.",
+		".oxxxxxxxxxxxxo.",
+		".oxxxxxxxxxxxxo.",
+		".ohxxxxxxxxxxxo.",
+		".ohxxxxxxxxxxxo.",
+		".oxxxxxxxxxxxxo.",
+		".oxxxxxxxxxxxxo.",
+		".oooooooooooooo.",
+		"................"],
 	"menu": [   # três traços (botão de menu do toque)
 		"................",
 		"................",
@@ -289,7 +386,8 @@ const ICONS := {
 		"................"],
 }
 const ICON_COLOR := {"hit": Color("#e86a5a"), "drain": Color("#b07ae8"), "bell": Color("#f0c850"), "cursor": Color.WHITE,
-	"more": Color.WHITE, "back": Color.WHITE, "menu": Color.WHITE}
+	"more": Color.WHITE, "back": Color.WHITE, "menu": Color.WHITE, "coin": Color("#f0c040"), "chest": Color("#a0642c"),
+	"chest_open": Color("#7a4a22")}
 
 static var _icons := {}
 

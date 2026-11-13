@@ -1,6 +1,6 @@
 extends Node2D
 ## Título mínimo (layout-designer 4.1): Valmor ao longe com neve, nome do jogo em texto e três botões de 180x44.
-## Opções simples: velocidade do texto e tela cheia. --skip-intro (e --dev-battle, --walk) vai direto à Valmor.
+## Opções simples: velocidade do texto, volume de música e de efeitos, tela cheia. --skip-intro (e --dev-battle, --walk) vai direto à Valmor.
 
 const BACKDROP := "res://assets/valmor_night.png"
 const CROP := Rect2(98, 55, 444, 249)
@@ -11,6 +11,9 @@ var box: VBoxContainer
 var bg: Sprite2D
 var t := 0.0
 var in_options := false
+var in_confirm := false
+var question: Label
+var heading: Array = []             # nome e subtítulo: somem nas opções, que têm mais linhas
 var shot_path := ""
 var frames := 0
 
@@ -62,20 +65,28 @@ func _ready() -> void:
 	logo.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	logo.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	logo.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	logo.offset_top = 60
+	logo.offset_top = 48
 	ui.add_child(logo)
 	var sub := UI.label("Os Reis Caídos", UI.TEXT_TOUCH if Controls.is_touch else 12, Color("#cfd8ff"), 2)
 	sub.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	sub.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.offset_top = 126
+	sub.offset_top = 92
 	ui.add_child(sub)
+	heading = [logo, sub]
+	question = UI.label("", UI.TEXT_TOUCH if Controls.is_touch else 12, Color("#ffe6a8"), 2)
+	question.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	question.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	question.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	question.offset_top = 150
+	question.hide()
+	ui.add_child(question)
 	box = VBoxContainer.new()
 	box.add_theme_constant_override("separation", 4)
 	box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	box.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	box.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	box.offset_bottom = -UI.SAFE - 40
+	box.offset_bottom = -UI.SAFE - 24
 	ui.add_child(box)
 	var ver := UI.label(VERSION, 12, Color(1, 1, 1, 0.5))
 	ver.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
@@ -85,8 +96,10 @@ func _ready() -> void:
 	ver.offset_bottom = -UI.SAFE
 	ui.add_child(ver)
 	_main()
+	Audio.music("valmor_noite")         # o título é a Valmor ao longe: a valsa e o vento seguem para a cena
+	Audio.amb("valmor_vento")
 
-func _rows(items: Array) -> void:
+func _rows(items: Array, focus := 0) -> void:
 	for ch in box.get_children():
 		box.remove_child(ch)
 		ch.queue_free()
@@ -95,33 +108,60 @@ func _rows(items: Array) -> void:
 		b.alignment = HORIZONTAL_ALIGNMENT_CENTER
 		b.custom_minimum_size = BTN
 		box.add_child(b)
-	box.get_child(0).grab_focus.call_deferred()
+	# a caixa já no tamanho final (centro embaixo, crescendo para cima): sem isso os botões novos ficavam 2 a 3
+	# quadros no lugar errado e um toque rápido caía no vazio
+	var m := box.get_combined_minimum_size()
+	box.offset_left = -m.x / 2.0
+	box.offset_right = m.x / 2.0
+	box.offset_top = box.offset_bottom - m.y
+	box.get_child(focus).grab_focus.call_deferred()
 
 func _main() -> void:
 	in_options = false
+	in_confirm = false
+	question.hide()
+	for h in heading:
+		h.show()
 	var items := [["Nova jogada", _new_game], ["Opções", _options]]
+	if Save.has_game():
+		items.push_front(["Continuar", Save.load_game])
 	if not OS.has_feature("web") and not OS.has_feature("mobile"):
-		items.append(["Sair", func(): get_tree().quit()])
+		items.append(["Sair", Audio.quit])
 	_rows(items)
 
+## Com jogo salvo, Nova jogada pergunta antes: o save antigo some no primeiro salvamento da jogada nova.
 func _new_game() -> void:
+	if Save.has_game() and not in_confirm:
+		in_confirm = true
+		for h in heading:
+			h.hide()
+		_rows([["Começar de novo", _new_game], ["Voltar", _main]], 1)
+		_ask("A jogada salva será substituída.")
+		return
 	Game.reset()
+	Game.started = true
 	Game.goto(Game.VALMOR)
 
-## Opções simples: a velocidade do texto dá a volta nas quatro; tela cheia só fora do celular.
-func _options() -> void:
+## Pergunta acima dos botões (só na confirmação de Nova jogada).
+func _ask(text: String) -> void:
+	question.text = text
+	question.show()
+
+## Opções: velocidade do texto, Música e Efeitos (Game.option_rows, iguais às da pausa); tela cheia só fora do celular.
+func _options(focus := 0) -> void:
 	in_options = true
-	var speeds: Array = DialogueRules.SPEEDS.keys()
-	var items := [["Texto: " + DialogueRules.SPEED_NAMES[Game.options.text_speed], func():
-		Game.options.text_speed = speeds[(speeds.find(Game.options.text_speed) + 1) % speeds.size()]
-		_options()]]
+	question.hide()
+	for h in heading:
+		h.hide()
+	var items := Game.option_rows(_options)
 	if not OS.has_feature("mobile"):
 		items.append(["Tela cheia", Controls.toggle_fullscreen])
 	items.append(["Voltar", _main])
-	_rows(items)
+	_rows(items, focus)
 
 func _unhandled_input(e: InputEvent) -> void:
-	if e.is_action_pressed("cancel") and in_options:
+	if e.is_action_pressed("cancel") and (in_options or in_confirm):
+		UI.play("voltar")
 		_main()
 
 func _process(delta: float) -> void:

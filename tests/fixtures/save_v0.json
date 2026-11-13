@@ -1,0 +1,11 @@
+{
+	"party": {
+		"aldo": {"lv": 4, "hp": 40, "mp": 0, "bonus": {}},
+		"lyra": {"lv": 4, "hp": 45, "mp": 12, "bonus": {}},
+		"teo": {"lv": 4, "hp": 999, "mp": 25, "bonus": {}},
+		"andilla": {"lv": 4, "hp": 0, "mp": 0}
+	},
+	"flags": {"abertura_vista": true, "sineiro_morto": true, "lixo": "x"},
+	"return_pos": [312.0, 498.5],
+	"text_speed": "rapida"
+}

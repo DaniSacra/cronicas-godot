@@ -4,7 +4,8 @@ extends CanvasLayer
 ## Na batalha só o botão de menu aparece (`show_stick` e `show_ab` desligados): lá os comandos são tocados no menu
 ## e o dedo em qualquer lugar da tela segura a carga (Controls.confirm_held).
 ## Modo diálogo (Dialogue aberto): joystick, A e B somem; tocar em qualquer lugar aperta confirm; um botão voltar
-## de 44x44 acima da caixa, alinhado à esquerda dela, aperta cancel.
+## de 44x44 acima da caixa, alinhado à esquerda dela, aperta cancel. Com a pausa aberta por cima, o modo diálogo
+## para (Controls.dialogue_mode).
 
 const RADIUS := 46.0
 const BTN_R := 22.0
@@ -42,16 +43,17 @@ func _layout() -> void:
 			var spots := DialogueRules.touch_spots(Dialogue.box_rect(), Dialogue.box_on_top(), buttons[0].pos, BTN_R)
 			buttons[0].pos = spots[1]
 			buttons.append({"action": "cancel", "label": "back", "pos": spots[0]})
-	elif show_ab:
+	elif show_ab and not get_tree().paused:     # pausa e loja: só o botão de menu
 		var ab := UI.ab_spots(s)
 		buttons.append({"action": "confirm", "label": "A", "pos": ab[0]})
 		buttons.append({"action": "cancel", "label": "B", "pos": ab[1]})
 
 func _process(_d: float) -> void:
 	visible = Controls.is_touch
-	if talking != Dialogue.is_open():
+	var now := Controls.dialogue_mode(Dialogue.is_open(), get_tree().paused)
+	if talking != now:
 		_release_all()
-		talking = Dialogue.is_open()
+		talking = now
 	if visible:
 		_layout()
 		canvas.queue_redraw()
@@ -99,7 +101,7 @@ func _handle(finger: int, pos: Vector2, down: bool, is_drag: bool) -> void:
 			held[finger] = buttons[k].action if k != -1 else "confirm"     # fora dos botões: avança a fala
 			Input.action_press(held[finger])
 		return
-	if show_stick and not talking and (finger == stick_finger or (stick_finger == -1 and not is_drag and pos.x < get_viewport().get_visible_rect().size.x * 0.45)):
+	if show_stick and not talking and not get_tree().paused and (finger == stick_finger or (stick_finger == -1 and not is_drag and pos.x < get_viewport().get_visible_rect().size.x * 0.45)):
 		stick_finger = finger
 		var v := Controls.stick_vector(center, pos, RADIUS)
 		Controls.touch_vec = v
@@ -113,7 +115,7 @@ func _handle(finger: int, pos: Vector2, down: bool, is_drag: bool) -> void:
 
 func _draw_hud() -> void:
 	var white := Color(1, 1, 1, ALPHA)
-	if show_stick and not talking:
+	if show_stick and not talking and not get_tree().paused:
 		canvas.draw_circle(center, RADIUS, Color(1, 1, 1, 0.10))
 		canvas.draw_arc(center, RADIUS, 0, TAU, 40, white, 1.5)
 		canvas.draw_circle(center + stick_off, 17.0, Color(1, 1, 1, 0.30 if stick_finger != -1 else 0.18))

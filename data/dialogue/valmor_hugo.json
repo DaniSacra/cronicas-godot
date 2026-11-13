@@ -1,0 +1,23 @@
+{
+  "scene": "valmor_hugo",
+  "lines": [
+    {"id": "g_antes", "if": ["!flag:sineiro_morto", "!flag:falou_hugo_antes"], "next": "a01"},
+    {"id": "g_antes_rep", "if": ["!flag:sineiro_morto"], "next": "a_rep"},
+    {"id": "g_depois", "if": ["!flag:falou_hugo_depois"], "next": "d01"},
+    {"id": "d_rep", "speaker": "hugo", "text": "Porta quieta, torre quieta. Graças a Elun.", "next": "end"},
+
+    {"id": "a01", "speaker": "hugo", "text": "Ninguém entra. E, se Elun quiser, nada sai."},
+    {"id": "a02", "speaker": "narrador", "text": "Hugo ergue a lanterna e conta as cabeças, uma por uma."},
+    {"id": "a03", "speaker": "hugo", "text": "Quatro. O velho avisou. Passem."},
+    {"id": "a04", "speaker": "andilla", "text": "Todo mundo nesta vila sabe contar até quatro.",
+     "do": ["set:falou_hugo_antes"], "next": "end"},
+
+    {"id": "a_rep", "speaker": "hugo", "text": "O marido da Sara desceu ali e voltou sem voz. Falem alto lá embaixo, para eu saber de vocês.",
+     "next": "end"},
+
+    {"id": "d01", "speaker": "hugo", "text": "Fiquei aqui a noite toda esperando o sino. Não veio."},
+    {"id": "d02", "speaker": "aldo", "text": "Não vem mais."},
+    {"id": "d03", "speaker": "hugo", "text": "Então eu fico até clarear. Só para ter certeza.",
+     "do": ["set:falou_hugo_depois"], "next": "end"}
+  ]
+}

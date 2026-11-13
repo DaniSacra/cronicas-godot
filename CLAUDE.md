@@ -20,7 +20,7 @@ Pages e serve de referência de falas e mecânicas). **Não publicar nada daqui 
 - Botões e alvos de toque com pelo menos 44 px na tela de 640x360. Texto legível em celular.
 - Telas mais compridas que 16:9: `stretch/aspect = expand`, a câmera mostra mais cenário, nunca barras pretas.
 - Orçamento de desempenho em celular: poucas luzes 2D (`MAX_LIGHTS_TOUCH`), menos partículas, texturas pequenas.
-- Salvar sempre por uma única camada (a escrever), que funcione na Steam, no Android e no navegador.
+- Salvar sempre pela camada única (`Save`, `scripts/save.gd`), que funciona na Steam, no Android e no navegador.
 - Ordem: Steam, depois Android (Godot exporta direto), iOS por último (precisa de Mac com Xcode e US$ 99 por ano).
 
 ## Ferramentas
@@ -34,7 +34,15 @@ Pages e serve de referência de falas e mecânicas). **Não publicar nada daqui 
 
 ## Estrutura
 - `scripts/valmor.gd`: a fatia vertical (Valmor à noite). `scripts/valmor_lights.json`: posições das luzes (pixels da imagem gerada).
-- `scripts/battle.gd` + `scenes/battle.tscn`: batalha lateral contra o Sineiro. `scripts/battle_rules.gd`: regras puras (testadas), portadas de `src/party.js` do jogo em JS. `scripts/game.gd`: estado entre cenas. `scripts/fx.gd`: luz, sombra e quadros dos heróis.
+- `scripts/valmor_rules.gd`: paredes, porta, baús, moradores (lugar, cena, sprite provisório), o "!" e quando a fatia acaba (falar com o Tobias depois do Sineiro).
+- `scripts/battle.gd` + `scenes/battle.tscn`: batalha contra o Sineiro. `scripts/battle_rules.gd`: regras puras (testadas), portadas de `src/party.js` do jogo em JS. `scripts/game.gd`: estado entre cenas (grupo, flags, moedas, bolsa, opções, `Game.goto`). `scripts/fx.gd`: luz, sombra e quadros dos heróis.
+- Autoloads: `Controls` (entrada; `Controls.prompt(ação)` dá o rótulo da tecla, botão ou toque em uso), `Game`, `Dialogue`
+  (`await Dialogue.play("cena")`, falas em `data/dialogue/*.json`, regras em `dialogue_rules.gd`; quem chama respeita
+  `is_open()`), `Audio` (som pelo nome, regras em `audio_rules.gd`) e `Save` (um arquivo `user://save.json` com `version`;
+  formato e migração em `save_rules.gd`; flags e IDs de item e baú nunca mudam de nome).
+- `scripts/ui.gd`: margem segura, painel, menus, ícones desenhados em código. `scripts/pause_menu.gd`: pausa (Continuar,
+  Opções, Tela cheia, Sair). `scripts/economy_rules.gd`: itens, moedas, baús e loja; `scripts/shop.gd`: loja da Dora.
+  `scripts/title.gd`: título.
 - Testes de batalha sem tela: `godot --headless --path . --scene res://scenes/battle.tscn -- --auto` (joga sozinho em velocidade alta e imprime `RESULT`). `--fast` acelera a batalha manual; `--dev-battle` na Valmor vai direto à luta.
 - `assets/heroes/<herói>/`: rotações e animações do Pixel Lab. `assets/valmor_night.png`: cenário.
 - `docs/mundo/`: o cânone (privado, no `.gitignore`). Ler `canone.md`, `panorama.md` e `personagens.md` antes de qualquer trabalho de história.
@@ -42,6 +50,7 @@ Pages e serve de referência de falas e mecânicas). **Não publicar nada daqui 
 ## Pontos fracos conhecidos
 - Escala de pixel misturada: cenário em 3x e heróis em 1x. Gerar cenários já na escala dos heróis.
 - Colisão provisória (retângulos por cima da imagem).
-- Falta diálogo, retratos, som e fonte pixel (a fonte padrão do Godot é lisa). Batalha lateral com o Sineiro pronta (sem Elos, itens nem fuga).
+- Diálogo, escolhas, save, itens, loja, baús e moradores prontos. Retratos provisórios (recorte do quadro do herói), moradores
+  provisórios (silhueta tingida de um herói), som provisório. Batalha sem Elos nem fuga.
 - Batalha em visão de baixo para cima (como Sea of Stars): grupo embaixo à esquerda, chefe no alto à direita, piso visto de cima (`assets/battle/arena_bg.png`, `sineiro_td.png`). A versão lateral antiga ficou em `assets/battle/crypt_bg.png` e `sineiro.png`.
 - Cenários gerados trazem uma borda roxa: a arte útil é recortada por `CROP` e o fundo da cripta é ampliado 1,43x (escala não inteira).

@@ -1,0 +1,26 @@
+{
+  "scene": "capela_tobias",
+  "lines": [
+    {"id": "g_antes", "if": ["!flag:sineiro_morto", "!flag:falou_tobias_antes"], "next": "a01"},
+    {"id": "g_antes_rep", "if": ["!flag:sineiro_morto"], "next": "a_rep"},
+    {"id": "g_fecho", "if": ["!flag:tobias_visto"], "next": "f01"},
+    {"id": "d_rep", "speaker": "narrador", "text": "O mensageiro dorme. Desta vez, um sono sem delírio.", "next": "end"},
+
+    {"id": "a01", "speaker": "narrador", "text": "O homem ferido dorme mal. Os lábios se mexem: o selo... o selo...",
+     "do": ["set:falou_tobias_antes"], "next": "end"},
+
+    {"id": "a_rep", "speaker": "narrador", "text": "O ferido aperta o cobertor. A cada badalada, ele se encolhe um pouco mais.",
+     "next": "end"},
+
+    {"id": "f01", "speaker": "irene", "text": "Ele acordou faz pouco. Disse o nome, Tobias, e perguntou por vocês."},
+    {"id": "f02", "speaker": "irene", "text": "Vou buscar água. Não cansem o homem."},
+    {"id": "f03", "speaker": "tobias", "text": "A carta. Ela continua fechada?"},
+    {"id": "f04", "speaker": "teo", "text": "Fechada. Ela vai inteira até a rainha."},
+    {"id": "f05", "speaker": "narrador", "text": "Tobias fecha os olhos. Chora sem fazer barulho."},
+    {"id": "f06", "speaker": "tobias", "text": "O que eu vi lá embaixo é da rainha. Levem a carta a ela."},
+    {"id": "f07", "speaker": "tobias", "text": "Em Erukh, não confiem em ninguém antes dela."},
+    {"id": "f08", "speaker": "andilla", "text": "Não confiar em ninguém. Essa parte eu já sabia."},
+    {"id": "f09", "speaker": "aldo", "text": "Então é para o norte.",
+     "do": ["set:tobias_visto"], "next": "end"}
+  ]
+}

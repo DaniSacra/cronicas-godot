@@ -3,6 +3,7 @@ extends Node2D
 ## --auto: os heróis jogam sozinhos, em velocidade alta, para autoteste e balanceamento.
 
 const R := preload("res://scripts/battle_rules.gd")
+const EC := preload("res://scripts/economy_rules.gd")
 const CROP := Rect2(100, 56, 486, 273)             # a arte útil dentro da imagem gerada
 const ZOOM := 640.0 / 486.0                        # exceção provisória à grade 1:1 (C1): a arena atual é ampliada
 const STAGE := Vector2(640, 360)                   # zona de ação; a câmera fica no centro dela
@@ -14,6 +15,12 @@ const BOSS_POS := Vector2(470, 184)
 const FOE_SPOT := Vector2(-48, 30)           # onde o herói para diante do chefe, ao atacar
 const DIM := Color(0.07, 0.08, 0.15)
 const NORMAL_TINT := Color(0.82, 0.86, 1.0)
+# Fúria visível (combat-reviewer P1-6): a cripta puxa para o vermelho, a luz do Sineiro fica vermelha e ele também,
+# os ícones da previsão ficam vermelhos e o chão treme a cada vez dele. Só imagem: os números são os de BattleRules.
+const RAGE_TINT := Color(0.92, 0.74, 0.78)
+const RAGE_BOSS := Color(1.25, 0.72, 0.68)
+const RAGE_LIGHT := Color("#ff4a3a")
+const RAGE_ICON := Color(1.0, 0.55, 0.5)
 const HAND := Vector2(16, -38)             # mão de quem conjura (escala 1,0)
 const CARD_SIZE := Vector2(148, 26)
 const TOP_BAR_SIZE := Vector2(440, 24)
@@ -28,11 +35,13 @@ const TAP_LIFT := Vector2(0, -28)
 const FORECAST_AT := BOSS_POS + Vector2(-30, -134)
 const BOSS_HIT := BOSS_POS + Vector2(-8, -46)      # onde o golpe acerta o chefe
 const BOSS_FEET := BOSS_POS + Vector2(-8, -18)     # base dos efeitos de chão (gelo, luz)
+const PARTY_CENTER := Vector2(270, 262)            # meio do arco do grupo (a Badalada fecha o anel aqui)
 # {A} vira o que segurar no aparelho em uso (E no teclado, A no controle, "o dedo na tela" no toque).
-const DESC := {"attack": "Ataque básico. Enche a energia.", "magic": "Magias do herói.", "tech": "Técnicas de combate.", "defend": "Reduz o dano e recupera energia.",
+const DESC := {"attack": "Ataque básico. No impacto, {T}: mais dano.", "magic": "Magias do herói.", "tech": "Técnicas de combate.", "defend": "Reduz o dano e recupera energia.",
 	"golpe": "Golpe pesado. Segure {A} para reforçar.", "golpeBaixo": "Some nas sombras e ataca por trás.", "fogo": "Bola de fogo contra um inimigo.",
-	"gelo": "Lascas de gelo do chão.", "cura": "Restaura PV de um único aliado.", "luz": "Raio sagrado. Segure {A} para reforçar."}
+	"gelo": "Gelo do chão. O Sineiro perde a próxima vez.", "cura": "Restaura PV de um único aliado.", "luz": "Raio sagrado. Segure {A} para reforçar."}
 const CHARGE_TIME := 1.0
+const HITSTOP := 0.06                      # parada curta em todo acerto no chefe (s de verdade)
 const SPECIAL := ["luz", "golpe", "golpeBaixo"]     # só as habilidades muito especiais escurecem a tela
 const SKILL_COLOR := {"golpe": Color("#ffc060"), "golpeBaixo": Color("#c890ff"), "fogo": Color("#ff9040"),
 	"gelo": Color("#90d8ff"), "cura": Color("#80ffb0"), "luz": Color("#fff0a0")}
@@ -46,6 +55,7 @@ var log_label: Label
 var menu_box: VBoxContainer
 var cards := {}
 var combo := 0
+var bag := {}                      # cópia da bolsa de Game: só volta para Game se vencer (tentar de novo começa cheia)
 var gem_label: Label
 var gem_style: StyleBoxFlat
 var forecast: Node2D
@@ -65,7 +75,7 @@ var back_btn: Button
 var tap_layer: Node2D             # alvos de toque sobre os heróis, na escolha de aliado
 var pools: Array = []
 var bstate := R.boss_state()
-var stats := {"taken": 0, "fallen": 0, "corte": 0, "escudo": 0, "items": 0, "timed": 0, "blocks": 0}   # para o --auto e o balanceamento
+var stats := {"taken": 0, "fallen": 0, "corte": 0, "escudo": 0, "items": 0, "timed": 0, "blocks": 0, "freeze": 0}   # para o --auto e o balanceamento
 var rounds := 0
 var auto := false
 var shot_path := ""
@@ -80,6 +90,11 @@ var demo := ""
 var demo_t0 := -1.0
 var shot_times: Array = []
 var shot_idx := 0
+var speed := 1.0                  # velocidade base do jogo (--auto, --fast); o hit-stop volta para ela
+var boss_ring: Node2D             # anel sob o Sineiro na vez dele
+var target_ring: Node2D           # alvo do golpe ou do dobre, marcado antes do impacto
+var bell_at := -1.0               # quando tocou a badalada de entrada (t): a música do chefe espera a cauda
+var fell_at := -1.0               # quando o sino rolou (t): o jingle de vitória vem depois do último toque e do silêncio
 
 func _ready() -> void:
 	y_sort_enabled = true
@@ -94,6 +109,7 @@ func _ready() -> void:
 		Engine.time_scale = 12.0
 	elif "--fast" in OS.get_cmdline_user_args():
 		Engine.time_scale = 6.0
+	speed = Engine.time_scale
 	RenderingServer.set_default_clear_color(Color(0.02, 0.02, 0.06))
 	mod = CanvasModulate.new()
 	mod.color = NORMAL_TINT
@@ -102,6 +118,9 @@ func _ready() -> void:
 	over.layer = 3
 	over.follow_viewport_enabled = true
 	add_child(over)
+	bag = Game.inv.duplicate()
+	if auto and not "--bag=start" in OS.get_cmdline_user_args():
+		bag = EC.CAREFUL_BAG.duplicate()   # balanceamento: o perfil do jogador cuidadoso (baús e a Pena da Dora)
 	_build_stage()
 	_build_ui()
 	cam = Camera2D.new()
@@ -115,7 +134,9 @@ func _ready() -> void:
 	add_child(touch_ui)
 	add_child(load("res://scripts/pause_menu.gd").new())
 	Controls.device_changed.connect(_on_device)
+	Dialogue.event.connect(_on_dialogue_event)
 	_apply_budget()
+	Audio.amb("cripta_gotas")          # sozinho nas falas de abertura: o silêncio cria o medo
 	_run()
 
 ## O toque apareceu ou sumiu: orçamento de luzes e menu aberto com a medida do aparelho novo.
@@ -205,6 +226,27 @@ func _build_stage() -> void:
 	turn_ring.add_child(ring_line)
 	turn_light = Fx.make_light(turn_ring, Vector2(0, -6), Color.WHITE, 1.0, 62)
 	add_child(turn_ring)
+	boss_ring = _ring(40.0, 14.0)
+	target_ring = _ring(22.0, 9.0)
+
+## Anel no chão (sem luz própria), escondido até _ring_on.
+func _ring(rx: float, ry: float) -> Node2D:
+	var l := Line2D.new()
+	var pts := PackedVector2Array()
+	for i in 41:
+		pts.append(Vector2(cos(TAU * i / 40.0) * rx, sin(TAU * i / 40.0) * ry))
+	l.points = pts
+	l.width = 1.6
+	l.material = Vfx.add_mat()
+	l.z_index = -1
+	l.hide()
+	add_child(l)
+	return l
+
+func _ring_on(ring: Node2D, at: Vector2, color: Color) -> void:
+	ring.position = at + Vector2(0, 3)
+	ring.modulate = color
+	ring.show()
 
 func _art_light(pos: Vector2, color: Color, energy: float, radius: float, flicker: float) -> Dictionary:
 	return {"n": Fx.make_light(self, pos, color, energy, radius), "base": energy, "f": flicker, "art": pos, "r": radius}
@@ -378,7 +420,10 @@ func _build_ui() -> void:
 	round_st.set_corner_radius_all(BACK_SIZE / 2)
 	for st in ["normal", "hover", "pressed", "focus"]:
 		back_btn.add_theme_stylebox_override(st, round_st)
-	back_btn.pressed.connect(func(): if menu_back.is_valid(): menu_back.call())
+	back_btn.pressed.connect(func():
+		if menu_back.is_valid():
+			UI.play("voltar")
+			menu_back.call())
 	back_btn.hide()
 	hud.add_child(back_btn)
 	tap_layer = Node2D.new()
@@ -406,6 +451,7 @@ func _update_forecast() -> void:
 		ic.texture = UI.icon(moves[i])
 		ic.centered = false
 		ic.position = Vector2(i * 20, 0)
+		ic.modulate = RAGE_ICON if bstate.enraged else Color.WHITE
 		ic.modulate.a = 1.0 if i == 0 else 0.7
 		forecast.add_child(ic)
 
@@ -448,6 +494,7 @@ func _clear_menu() -> void:
 func _place_menu() -> void:
 	if not menu_panel.visible or menu_hero.is_empty():
 		return
+	menu_panel.reset_size()             # o tamanho das linhas novas já agora, não um quadro depois (o painel saltava)
 	var safe := UI.safe_rect(get_viewport())
 	if Controls.is_touch:
 		menu_panel.position = safe.end - menu_panel.size
@@ -484,11 +531,12 @@ func _button(text: String, cb: Callable, disabled := false, desc := "", two_tap 
 	b.focus_entered.connect(func():
 		cursor.show()
 		if desc != "":
-			log_label.text = desc.replace("{A}", Controls.prompt("hold")))
+			log_label.text = desc.replace("{A}", Controls.prompt("hold")).replace("{T}", Controls.prompt("tap")))
 	b.focus_exited.connect(cursor.hide)
 	menu_box.add_child(b)
 	menu_panel.show()
 	menu_tab.show()
+	_place_menu.call_deferred()         # no fim deste quadro, antes de desenhar: o menu nunca aparece no lugar velho
 	return b
 
 ## Abre um submenu: cancel (Esc, B) volta para `back`.
@@ -516,7 +564,10 @@ func _main_menu(h: Dictionary) -> void:
 	var first := _button("Atacar", func(): choice_made.emit({"type": "attack"}), false, DESC.attack)
 	var word := "Técnica" if R.HEROES[h.id].energy else "Magia"
 	_button(word, func(): _skill_menu(h), false, DESC.tech if R.HEROES[h.id].energy else DESC.magic)
-	_button("Combo", func(): _combo_menu(h), combo < int(R.COMBOS.corte.cost), "Golpes em dupla. Gastam pontos de combo.", false, str(combo))
+	var can_combo := R.combos_of(h.id).any(func(cid): return R.combo_ready(cid, combo, _alive()))
+	_button("Combo", func(): _combo_menu(h), not can_combo, "Golpes em dupla. Ataques enchem os pontos de combo.", false, str(combo))
+	var can_item := EC.ITEMS.keys().any(func(iid): return EC.usable(bag, iid, actors, ORDER))
+	_button("Itens", func(): _item_menu(h), not can_item, "Itens da bolsa. Usar gasta a vez.")
 	_button("Defender", func(): choice_made.emit({"type": "defend"}), false, DESC.defend)
 	first.grab_focus.call_deferred()
 
@@ -524,7 +575,7 @@ func _combo_menu(h: Dictionary) -> void:
 	_submenu(h, func(): _main_menu(h))
 	menu_rebuild = func(): _combo_menu(h)
 	var rows: Array = []
-	for cid in R.COMBOS:
+	for cid in R.combos_of(h.id):
 		var cb: Dictionary = R.COMBOS[cid]
 		var ok := R.combo_ready(cid, combo, _alive())
 		rows.append(_button(cb.name, func(): choice_made.emit({"type": "combo", "id": cid}), not ok, cb.desc, true, "%d PC" % cb.cost))
@@ -550,22 +601,37 @@ func _skill_menu(h: Dictionary) -> void:
 	rows.append(_back_row(func(): _main_menu(h)))
 	_focus_first(rows)
 
-## Escolha do aliado: pela lista ou tocando no próprio herói (alvo de TAP_HERO sobre cada um).
 func _after_skill_pick(h: Dictionary, sid: String) -> void:
 	if R.SKILLS[sid].target != "ally":
 		choice_made.emit({"type": "skill", "id": sid})
 		return
-	_submenu(h, func(): _skill_menu(h))
-	menu_rebuild = func(): _after_skill_pick(h, sid)
+	_target_menu(h, R.alive_ids(actors), {"type": "skill", "id": sid}, func(): _skill_menu(h), func(): _after_skill_pick(h, sid))
+
+## Itens da bolsa, com a quantidade à direita. Esmaecido quando não tem ou ninguém pode receber.
+func _item_menu(h: Dictionary) -> void:
+	_submenu(h, func(): _main_menu(h))
+	menu_rebuild = func(): _item_menu(h)
 	var rows: Array = []
-	for id in ORDER:
-		var a: Dictionary = actors[id]
-		if a.hp <= 0:
+	for iid in EC.ITEMS:
+		if int(bag.get(iid, 0)) <= 0:
 			continue
-		var pick := func(): choice_made.emit({"type": "skill", "id": sid, "target": id})
+		var it: Dictionary = EC.ITEMS[iid]
+		var pick := func(): _target_menu(h, EC.targets(iid, actors, ORDER), {"type": "item", "id": iid}, func(): _item_menu(h), func(): _item_menu(h))
+		rows.append(_button(it.name, pick, not EC.usable(bag, iid, actors, ORDER), it.desc, true, "x%d" % bag[iid]))
+	rows.append(_back_row(func(): _main_menu(h)))
+	_focus_first(rows)
+
+## Escolha do aliado: pela lista ou tocando no próprio herói (alvo de TAP_HERO sobre cada um). `choice` ganha "target".
+func _target_menu(h: Dictionary, ids: Array, choice: Dictionary, back: Callable, rebuild: Callable) -> void:
+	_submenu(h, back)
+	menu_rebuild = rebuild
+	var rows: Array = []
+	for id in ids:
+		var a: Dictionary = actors[id]
+		var pick := func(): choice_made.emit(choice.merged({"target": id}))
 		rows.append(_button(R.HEROES[id].name, pick, false, "", false, "%d/%d" % [a.hp, a.hpmax]))
 		_hero_target(a, pick)
-	rows.append(_back_row(func(): _skill_menu(h)))
+	rows.append(_back_row(back))
 	_focus_first(rows)
 	log_label.text = "Toque em quem vai receber." if Controls.is_touch else "Quem vai receber?"
 
@@ -587,6 +653,7 @@ func _hero_target(a: Dictionary, pick: Callable) -> void:
 func _unhandled_input(e: InputEvent) -> void:
 	if menu_panel.visible and menu_back.is_valid() and e.is_action_pressed("cancel"):
 		get_viewport().set_input_as_handled()
+		UI.play("voltar")
 		menu_back.call()
 
 # ---------- laço da batalha ----------
@@ -639,11 +706,19 @@ func _demo() -> void:
 func _run() -> void:
 	_update_forecast()
 	if demo != "":
+		Audio.music("chefe_sineiro", 0.0)     # a demonstração soa como a luta (serve para medir a mixagem)
 		await _demo()
 		return
 	await _wait(0.5)
 	# nova tentativa depois de uma derrota: só a fala curta da porta; na primeira vez, a abertura do Sineiro
+	# (a badalada de entrada vem na fala "O último toque...", pelo evento sino_entrada)
+	if Game.tries > 0:
+		_entrance_bell()
 	await _talk("igreja_velha" if Game.tries > 0 else "sineiro_abertura")
+	if bell_at < 0.0:
+		_entrance_bell()                 # --auto, ou a fala não tocou
+	await _wait(AudioRules.wait_left(t - bell_at, AudioRules.BELL_TAIL))
+	Audio.music("chefe_sineiro", 0.0)
 	while true:
 		rounds += 1
 		for id in ORDER:
@@ -656,6 +731,26 @@ func _run() -> void:
 			break
 	await _finish()
 
+func _entrance_bell() -> void:
+	bell_at = t
+	Audio.sfx("sino_entrada")
+
+## Eventos "emit:" das falas da luta: a badalada de entrada e o sino que rola quando o Sineiro desaba.
+func _on_dialogue_event(name: String) -> void:
+	match name:
+		"sino_entrada":
+			_entrance_bell()
+		"sineiro_cai":
+			_sineiro_falls()
+
+## O Sineiro some e o sino rola pelas pedras, toca uma última vez e se cala.
+func _sineiro_falls() -> void:
+	if fell_at >= 0.0:
+		return
+	fell_at = t
+	Audio.sfx("ultimo_toque")
+	create_tween().tween_property(boss.sprite, "modulate:a", 0.0, 1.4)
+
 func _hero_turn(h: Dictionary) -> void:
 	h.defending = false
 	if h.sprite.animation == "defend":
@@ -666,7 +761,7 @@ func _hero_turn(h: Dictionary) -> void:
 	turn_ring.show()
 	var choice: Dictionary
 	if auto:
-		choice = R.auto_choice(h.id, actors, combo)
+		choice = R.auto_choice(h.id, actors, combo, bstate, bag)
 	else:
 		log_label.text = "Vez de %s." % R.HEROES[h.id].name
 		_main_menu(h)
@@ -695,6 +790,7 @@ func _cine_begin(title: String, color: Color, special := false) -> void:
 	if special:
 		tw.tween_property(mod, "color", DIM, 0.35)
 		_light_pools()
+		Audio.duck(true)
 	tw.tween_property(banner, "modulate:a", 1.0, 0.25)
 	await tw.finished
 
@@ -724,18 +820,26 @@ func _charge(h: Dictionary, col: Color) -> float:
 	tw.tween_property(glow, "energy", 2.6, CHARGE_TIME)
 	var held := 0.0
 	var step := 0.05
+	var riser := Audio.sfx("carga")          # sobe em exatamente CHARGE_TIME
 	for i in int(CHARGE_TIME / step):
 		await _wait(step)
 		if auto or demo != "" or Controls.confirm_held():
 			held += step
+		else:
+			Audio.stop(riser)               # sem segurar, o som de carga corta com fade curto
+			if held > 0.0:
+				break                   # soltou: a carga termina ali, sem esperar o resto do segundo
+	if held >= CHARGE_TIME - 0.001:
+		Audio.sfx("carga_cheia")
 	orb.queue_free()
 	glow.queue_free()
 	log_label.text = ""
 	return clampf(held / CHARGE_TIME, 0.0, 1.0)
 
 func _cine_end() -> void:
+	Audio.duck(false)
 	var tw := create_tween().set_parallel(true)
-	tw.tween_property(mod, "color", NORMAL_TINT, 0.3)
+	tw.tween_property(mod, "color", RAGE_TINT if bstate.enraged else NORMAL_TINT, 0.3)
 	tw.tween_property(banner, "modulate:a", 0.0, 0.2)
 	for pool in pools:
 		tw.tween_property(pool, "energy", 0.0, 0.3)
@@ -746,8 +850,10 @@ func _cine_end() -> void:
 
 func _impact(h: Dictionary) -> void:
 	if h.id == "aldo" or h.id == "andilla":
+		Audio.sfx("impacto")
 		Vfx.sword_hit(self, BOSS_HIT)
 	else:
+		Audio.sfx("impacto_magico")
 		Vfx.glow(self, BOSS_HIT, Color(1, 0.95, 0.8, 1), 130.0, 0.25, 1.4)
 		Vfx.sparks(self, BOSS_HIT, Color(1, 0.95, 0.8, 1), 14, 130.0, 0.4, Vector2(0, 200), 2.0)
 
@@ -766,21 +872,32 @@ func _execute(h: Dictionary, c: Dictionary) -> void:
 			_update_cards()
 			log_label.text = "%s se defende." % name_
 			_play(h, "defend")
+			Audio.sfx("defender")
 			Vfx.ring(self, h.root.position + Vector2(0, 2), Color(0.5, 0.75, 1.0, 0.9), 10.0, 38.0, 0.5)
 			Vfx.glow(self, h.root.position + Vector2(0, -24), Color(0.5, 0.75, 1.0, 0.6), 110.0, 0.5, 1.3)
 			await _wait(0.9)
 		"attack":
 			log_label.text = "%s ataca o Sineiro!" % name_
+			Controls.listen_press()
 			await _lunge(h)
 			_play(h, "attack")
-			await _wait(0.32)
-			var dmg := R.attack_damage(h.atk, R.roll("dmg", randf()))
-			_gain(h, "attack")
-			_add_combo(R.combo_points("attack"))
+			if h.id == "aldo" or h.id == "andilla":
+				Audio.sfx_later("espada", 0.2, -3.0)    # o corte chega um pouco antes do impacto (somado a ele passava de -6)
+			var timed := await _strike_window(BOSS_FEET, 0.32)
 			_impact(h)
-			await _hit_boss(dmg, Color.WHITE)
+			var dmg := R.attack_damage(h.atk, R.roll("dmg", randf()), timed)
+			_gain(h, "attack")
+			_add_combo(R.combo_points("attack") + (R.combo_points("timed") if timed else 0))
+			if timed:
+				stats.timed += 1
+				Audio.sfx("carga_cheia", -2.0, 1.25)      # "Em cheio!": o brilho da carga, mais agudo
+				_float_text(BOSS_POS + Vector2(-70, -64), "Em cheio!", Color("#ffe080"), false, true)
+				Vfx.sparks(self, BOSS_HIT, Color("#ffe080"), 16, 160.0, 0.35)
+			await _hit_boss(dmg, Color.WHITE, timed, 0.0)
 			await _wait(0.15)
 			await _back(h)
+		"item":
+			await _use_item(h, c.id, actors[c.target])
 		"combo":
 			var cb: Dictionary = R.COMBOS[c.id]
 			combo -= int(cb.cost)
@@ -806,6 +923,7 @@ func _execute(h: Dictionary, c: Dictionary) -> void:
 				_play(h, "cast")
 				Vfx.magic_circle(self, h.root.position + Vector2(0, 4), col, 0.9)
 				await _wait(0.5)
+				Audio.sfx("cura")
 				Vfx.heal(self, tgt.root.position + Vector2(0, -14))
 				await _wait(0.5)
 				tgt.hp = mini(tgt.hpmax, tgt.hp + amount)
@@ -826,6 +944,7 @@ func _execute(h: Dictionary, c: Dictionary) -> void:
 					dmg = R.charged(dmg, full)
 					await _lunge(h)
 					_play(h, "heavy")
+					Audio.sfx_later("golpe_forte", 0.25)      # o pico do arquivo (0,25 s) cai no golpe
 					await _wait(0.5)
 					Vfx.sword_hit(self, BOSS_HIT, true)
 					_shake(4.0)
@@ -838,6 +957,11 @@ func _execute(h: Dictionary, c: Dictionary) -> void:
 				await _cine_begin(s.name, col, c.id in SPECIAL)
 				Vfx.magic_circle(self, h.root.position + Vector2(0, 4), col, 1.0)
 				_play(h, "cast")
+				# a explosão do fogo (0,70 s no arquivo) e o estilhaço do gelo caem no acerto
+				if c.id == "fogo":
+					Audio.sfx_later("fogo", 0.17)
+				elif c.id == "gelo":
+					Audio.sfx_later("gelo", 0.05)
 				await _wait(0.45)
 				match c.id:
 					"fogo":
@@ -847,10 +971,18 @@ func _execute(h: Dictionary, c: Dictionary) -> void:
 						Vfx.ice(self, BOSS_FEET)
 						await _wait(0.3)
 						await _hit_boss(dmg, col)
-						await _wait(0.4)
+						if boss.hp > 0 and R.freeze(bstate):
+							stats.freeze += 1
+							boss.root.modulate = Color("#a8dcff")
+							log_label.text = "O Sineiro congela: perde a próxima vez."
+						elif boss.hp > 0:
+							log_label.text = "O Sineiro ainda resiste ao frio."
+						await _wait(0.6)
 					_:
 						var full := await _charge(h, col)
 						dmg = R.charged(dmg, full)
+						Audio.sfx("luz_sagrada")         # coro do lado dos heróis, em crescendo: o ápice (1,15 s) cai no acerto
+						await _wait(0.65)
 						Vfx.holy(self, BOSS_FEET)
 						await _wait(0.5)
 						await _hit_boss(dmg, col, full >= 1.0)
@@ -859,6 +991,31 @@ func _execute(h: Dictionary, c: Dictionary) -> void:
 						await _wait(0.5)
 				_play(h, "stance")
 				await _cine_end()
+
+## Item da bolsa: o herói ergue o item, luz verde no alvo; a Pena levanta quem caiu.
+func _use_item(h: Dictionary, iid: String, tgt: Dictionary) -> void:
+	EC.take(bag, iid)
+	stats.items += 1
+	var it: Dictionary = EC.ITEMS[iid]
+	log_label.text = "%s usa %s em %s." % [R.HEROES[h.id].name, it.name, R.HEROES[tgt.id].name]
+	_play(h, "cast")
+	await _wait(0.4)
+	var revive: bool = tgt.hp <= 0
+	Audio.sfx("cura")
+	if revive:
+		Vfx.pillar(self, tgt.root.position, Color("#fff0a0"))
+		await _wait(0.4)
+	else:
+		Vfx.heal(self, tgt.root.position + Vector2(0, -14))
+		await _wait(0.4)
+	var amount := EC.apply_item(iid, tgt)
+	_float_text(tgt.root.position + Vector2(0, -64), "+%d" % amount, Color("#70e090") if it.kind != "mp" else Color("#90c0ff"))
+	if revive:
+		_play(tgt, "stance")
+		log_label.text = "%s se levanta!" % R.HEROES[tgt.id].name
+	_update_cards()
+	await _wait(0.8)
+	_play(h, "stance")
 
 ## Corte Duplo: Aldo e Andilla correm juntos e cortam o chefe ao mesmo tempo.
 func _combo_corte(cb: Dictionary) -> void:
@@ -869,6 +1026,7 @@ func _combo_corte(cb: Dictionary) -> void:
 	await _cine_begin(cb.name, col, true)
 	_play(a, "walk")
 	_play(d, "dash")
+	Audio.sfx("avanco")
 	_trail(d, 5)
 	var tw := create_tween().set_parallel(true)
 	tw.tween_property(a.root, "position", _target_spot(a) + Vector2(0, -10), 0.3).set_trans(Tween.TRANS_CUBIC)
@@ -876,7 +1034,9 @@ func _combo_corte(cb: Dictionary) -> void:
 	await tw.finished
 	_play(a, "heavy")
 	_play(d, "slashx")
+	Audio.sfx_later("golpe_forte", 0.17, -3.0)    # provisório até o corte_duplo.wav (P1.2); somado, o pico fica em -4
 	await _wait(0.42)
+	Audio.sfx("espada", -3.0)
 	Vfx.sword_hit(self, BOSS_HIT, true)
 	Vfx.cross_slash(self, BOSS_HIT)
 	_shake(7.0)
@@ -894,6 +1054,7 @@ func _combo_escudo(cb: Dictionary) -> void:
 	_play(actors.lyra, "cast")
 	Vfx.magic_circle(self, actors.teo.root.position + Vector2(0, 4), col, 1.0)
 	Vfx.magic_circle(self, actors.lyra.root.position + Vector2(0, 4), col, 1.0)
+	Audio.sfx("cura")                             # provisório até escudo_luz.wav e pilar.wav (P1.3)
 	await _wait(0.6)
 	var living := _alive()
 	for id in living:
@@ -906,6 +1067,7 @@ func _combo_escudo(cb: Dictionary) -> void:
 		a.hp = mini(a.hpmax, a.hp + amount)
 		a.defending = true
 		_float_text(a.root.position + Vector2(0, -64), "+%d" % amount, Color("#70e090"))
+	Audio.sfx("defender")
 	_update_cards()
 	await _wait(0.9)
 	_play(actors.teo, "stance")
@@ -917,6 +1079,7 @@ func _target_spot(h: Dictionary) -> Vector2:
 
 func _lunge(h: Dictionary) -> void:
 	_play(h, "walk")
+	Audio.sfx("avanco")
 	var tw := create_tween()
 	tw.tween_property(h.root, "position", _target_spot(h), 0.30).set_trans(Tween.TRANS_QUAD)
 	await tw.finished
@@ -926,6 +1089,7 @@ func _shadow_strike(h: Dictionary, dmg: int, col: Color) -> void:
 	var behind := BOSS_POS + Vector2(44, -18)
 	await _shadow_step(h, behind, true)
 	_play(h, "slashx", true)
+	Audio.sfx_later("passo_sombras_volta", 0.15)     # reaparece e corta: o pico (0,10 s) cai no corte
 	await _wait(0.25)
 	Vfx.cross_slash(self, BOSS_HIT)
 	_shake(4.0)
@@ -936,6 +1100,7 @@ func _shadow_strike(h: Dictionary, dmg: int, col: Color) -> void:
 
 func _shadow_step(h: Dictionary, to: Vector2, flip: bool) -> void:
 	var from: Vector2 = h.root.position
+	Audio.sfx("passo_sombras_some")
 	Vfx.smoke(self, from + Vector2(0, -22))
 	_play(h, "defend")
 	await _wait(0.15)
@@ -948,13 +1113,14 @@ func _shadow_step(h: Dictionary, to: Vector2, flip: bool) -> void:
 
 func _back(h: Dictionary) -> void:
 	_play(h, "walk", true)
+	Audio.sfx("volta")
 	var tw := create_tween()
 	tw.tween_property(h.root, "position", h.home, 0.26)
 	await tw.finished
 	_play(h, "stance")
 
 ## Dano no chefe. `big`: golpe com carga cheia, o número sai no dobro do tamanho.
-func _hit_boss(dmg: int, burst: Color, big := false) -> void:
+func _hit_boss(dmg: int, burst: Color, big := false, stop := HITSTOP) -> void:
 	boss.hp = maxi(0, boss.hp - dmg)
 	_burst(BOSS_POS + Vector2(-8, -50), burst)
 	_float_text(BOSS_POS + Vector2(-8, -96), str(dmg), Color.WHITE, big)
@@ -964,7 +1130,44 @@ func _hit_boss(dmg: int, burst: Color, big := false) -> void:
 	create_tween().tween_property(sp, "modulate", Color.WHITE, 0.25)
 	sp.position.x = 7.0
 	create_tween().tween_property(sp, "position:x", 0.0, 0.25).set_trans(Tween.TRANS_BACK)
+	await _hitstop(stop * (1.5 if big else 1.0))
 	await _wait(0.45)
+
+## Hit-stop: o jogo quase para por `sec` segundos de verdade no acerto (60 a 90 ms) e volta à velocidade base.
+func _hitstop(sec: float) -> void:
+	if auto or sec <= 0.0:
+		return
+	Engine.time_scale = speed * 0.02
+	await get_tree().create_timer(sec, true, false, true).timeout
+	Engine.time_scale = speed
+
+## Ação no tempo certo: um anel se fecha sobre `pos` em `sec` segundos e o impacto é quando ele fecha.
+## Vale o primeiro aperto desde Controls.listen_press(), chamado no começo da ação: apertar cedo perde.
+## O hit-stop do impacto é também a parte tardia da janela. O --auto acerta R.AUTO_TIMED das vezes; as demos, nunca.
+func _strike_window(pos: Vector2, sec: float) -> bool:
+	var l := Line2D.new()
+	var pts := PackedVector2Array()
+	for i in 33:
+		pts.append(Vector2(cos(TAU * i / 32.0), sin(TAU * i / 32.0) * 0.42))
+	l.points = pts
+	l.width = 1.5 / 40.0
+	l.default_color = Color(1, 0.95, 0.7, 0.3)
+	l.material = Vfx.add_mat()
+	l.position = pos
+	l.scale = Vector2.ONE * 40.0
+	l.z_index = 74
+	add_child(l)
+	var tw := l.create_tween().set_parallel(true)
+	tw.tween_property(l, "scale", Vector2.ONE * 10.0, sec)
+	tw.tween_property(l, "width", 1.5 / 10.0, sec)
+	tw.tween_property(l, "default_color:a", 1.0, sec)
+	await _wait(sec)
+	l.queue_free()
+	if auto or demo != "":
+		return demo == "" and randf() < R.AUTO_TIMED
+	var impact := Time.get_ticks_msec()
+	await _hitstop(R.TIMED_LATE_MS / 1000.0)
+	return R.timed_ok(Controls.heard_ms, impact)
 
 func _boss_turn() -> void:
 	await _wait(0.2)
@@ -972,38 +1175,74 @@ func _boss_turn() -> void:
 	var calm: bool = not bstate.enraged
 	var move := R.boss_turn(bstate, frac)          # o golpe anunciado; a fúria só muda os seguintes
 	if calm and bstate.enraged:
-		await _talk("sineiro_furia")
+		await _enrage()
+	elif bstate.enraged:
+		_shake(2.0)                                 # furioso, o chão treme a cada vez dele
 	_update_forecast()
+	if move == "frozen":
+		await _say("O Sineiro está preso no gelo e perde a vez.", 0.9)
+		create_tween().tween_property(boss.root, "modulate", Color.WHITE, 0.4)
+		return
 	top_icon.texture = UI.icon(move)
 	var alive := _alive()
+	Controls.listen_press()                         # bloqueio: vale o primeiro aperto desde aqui
+	_ring_on(boss_ring, boss.root.position, Color("#ff3a30") if bstate.enraged else Color("#ff7060"))
 	if move == "bell":
 		_boss_anim("special")
-		await _say("O Sineiro toca a Badalada! O som atravessa os ossos.", 0.8)
+		Audio.sfx("badalada")                      # as duas badaladas (pico em 0,6 s) chegam com o tremor
+		await _say("O Sineiro toca a Badalada! O som atravessa os ossos.", 0.3)
+		var blocked := await _strike_window(PARTY_CENTER, 0.5)
 		_shake(5.0)
+		stats.blocks += int(blocked)
 		for id in alive:
 			var a: Dictionary = actors[id]
 			var dmg := R.bell_damage(a.res, bstate.enraged, R.roll("soft", randf()))
-			await _hurt_hero(a, dmg, false)
+			await _hurt_hero(a, dmg, false, blocked, id == alive[0])     # gritos empilhados não: só o primeiro soa
 	elif move == "drain":
 		var a: Dictionary = actors[alive[randi() % alive.size()]]
+		_ring_on(target_ring, a.root.position, Color("#ff7060"))
 		_boss_anim("special")
-		await _say("O Sineiro entoa um dobre fúnebre por %s!" % R.HEROES[a.id].name, 0.8)
-		var dmg := R.drain_damage(a.res, R.roll("soft", randf()))
-		await _hurt_hero(a, dmg, false)
-		boss.hp = mini(boss.hpmax, boss.hp + R.drain_heal(dmg))
+		Audio.sfx("dobre")
+		await _say("O Sineiro entoa um dobre fúnebre por %s!" % R.HEROES[a.id].name, 0.3)
+		var blocked := await _strike_window(a.root.position, 0.5)
+		stats.blocks += int(blocked)
+		var dmg := await _hurt_hero(a, R.drain_damage(a.res, R.roll("soft", randf())), false, blocked)
+		var back := mini(boss.hpmax - boss.hp, R.drain_heal(dmg))
+		boss.hp += back
+		_float_text(BOSS_POS + Vector2(-8, -96), "+%d" % back, Color("#70e090"))
 	else:
 		var a: Dictionary = actors[alive[randi() % alive.size()]]
+		_ring_on(target_ring, a.root.position, Color("#ff7060"))
 		await _say("O Sineiro golpeia %s com o sino!" % R.HEROES[a.id].name, 0.5)
+		boss_ring.hide()
 		var tw := create_tween()
 		tw.tween_property(boss.root, "position", a.root.position + Vector2(56, -24), 0.34).set_trans(Tween.TRANS_QUAD)
 		await tw.finished
 		_boss_anim("heavy")
-		await _wait(0.3)
-		await _hurt_hero(a, R.boss_hit_damage(a.def, bstate.enraged, R.roll("dmg", randf())), true)
+		var blocked := await _strike_window(a.root.position, 0.3)
+		stats.blocks += int(blocked)
+		Audio.sfx("golpe_sino")
+		await _hurt_hero(a, R.boss_hit_damage(a.def, bstate.enraged, R.roll("dmg", randf())), true, blocked)
 		var back := create_tween()
 		back.tween_property(boss.root, "position", BOSS_POS, 0.3)
 		await back.finished
+	boss_ring.hide()
+	target_ring.hide()
 	top_icon.texture = null
+
+## O Sineiro enfurece (abaixo de 40%): som, tremor forte, a cena puxa para o vermelho e a fala da fúria.
+func _enrage() -> void:
+	Audio.sfx("furia")
+	_shake(6.0)
+	var glow: Dictionary = glows[0]                 # a luz que já fica sobre o Sineiro: muda de cor, não nasce outra
+	var tw := create_tween().set_parallel(true)
+	tw.tween_property(mod, "color", RAGE_TINT, 0.6)
+	tw.tween_property(boss.sprite, "self_modulate", RAGE_BOSS, 0.6)
+	tw.tween_property(glow.n, "color", RAGE_LIGHT, 0.6)
+	glow.base = 0.95
+	_update_forecast()
+	await _talk("sineiro_furia")
+	await _say("O Sineiro está furioso! A Badalada vem mais vezes.", 1.0)
 
 ## Toca uma animação do Sineiro e volta para a pose parada.
 func _boss_anim(anim: String) -> void:
@@ -1012,28 +1251,37 @@ func _boss_anim(anim: String) -> void:
 	await sp.animation_finished
 	sp.play("stance")
 
-func _hurt_hero(a: Dictionary, dmg: int, single: bool) -> void:
-	dmg = R.taken(dmg, a.defending)
+## Devolve o dano que o herói recebeu de fato (depois da defesa). `loud`: o golpe em todos só soa no primeiro.
+func _hurt_hero(a: Dictionary, dmg: int, single: bool, blocked := false, loud := true) -> int:
+	dmg = R.taken(dmg, a.defending, blocked)
+	if blocked and loud:
+		Audio.sfx("defender")
+	if blocked:
+		_float_text(a.root.position + Vector2(0, -84), "Bloqueio!", Color("#a8e8ff"), false, true)
+		Vfx.sparks(self, a.root.position + Vector2(0, -30), Color("#a8e8ff"), 12, 120.0, 0.3)
 	a.hp = maxi(0, a.hp - dmg)
 	stats.taken += dmg
+	if loud:
+		Audio.sfx("dano_heroi")
 	if a.hp <= 0:
+		Audio.sfx("queda")
 		stats.fallen += 1
 	else:
 		_gain(a, "hurt")
 	_float_text(a.root.position + Vector2(0, -64), str(dmg), Color.WHITE)
 	_shake(2.5)
-	var sp: AnimatedSprite2D = a.sprite
 	_play(a, "hurt" if a.hp > 0 else "fall", not Fx.new_art(a.id))
 	_update_cards()
 	await _wait(0.5 if single else 0.3)
 	if a.hp > 0:
 		_play(a, "stance")
+	return dmg
 
 # ---------- efeitos ----------
 
 ## Número que sobe e some, acima do escurecimento (camada `over`). Fonte de números no tamanho nativo; dobrado só se `big`.
-func _float_text(pos: Vector2, text: String, color: Color, big := false) -> void:
-	var l := UI.num_label(text, 16 if big else 8, color, 3 if big else 2)
+func _float_text(pos: Vector2, text: String, color: Color, big := false, word := false) -> void:
+	var l := UI.label(text, 12, color, 2) if word else UI.num_label(text, 16 if big else 8, color, 3 if big else 2)
 	l.position = (pos - l.get_minimum_size() / 2.0).round()
 	over.add_child(l)
 	var tw := create_tween().set_parallel(true)
@@ -1076,31 +1324,36 @@ func _shake(power: float) -> void:
 func _finish() -> void:
 	var won: bool = boss.hp <= 0
 	if won:
-		var sp: AnimatedSprite2D = boss.sprite
-		var fall := func(_n := ""): create_tween().tween_property(sp, "modulate:a", 0.0, 1.4)
-		Dialogue.event.connect(fall, CONNECT_ONE_SHOT)      # "emit:sineiro_cai" na fala em que ele desaba
-		await _talk("sineiro_fim")
-		if Dialogue.event.is_connected(fall):
-			Dialogue.event.disconnect(fall)
-			fall.call()
+		Audio.music_stop(0.3)                # a música para em "O Sineiro cambaleia"
+		await _talk("sineiro_fim")           # "emit:sineiro_cai" na fala em que ele desaba: o sino rola
+		_sineiro_falls()
 		for id in ORDER:
 			var d: Dictionary = Game.party[id]
 			d.hp = maxi(1, actors[id].hp)
 			d.mp = actors[id].mp
 		Game.flags["sineiro_morto"] = true
+		Game.inv = bag
+		if not auto:
+			Save.write()                     # autosave depois da luta (a Valmor salva de novo ao abrir)
 	else:
+		Audio.music_stop(0.8)
+		Audio.sfx("derrota")                 # badalada ao longe e um acorde menor que se apaga
 		await _say("O sino tocou por vocês...", 2.0)
 	if auto:
 		var pool: int = ORDER.reduce(func(acc, id): return acc + actors[id].hpmax, 0)
 		var extra := " ".join(stats.keys().map(func(k): return "%s=%d" % [k, stats[k]]))
 		print("RESULT ", "WIN" if won else "LOSE", " rounds=", rounds, " boss_hp=", boss.hp, " alive=", _alive().size(),
-			" ", extra, " taken_pct=%d" % roundi(100.0 * stats.taken / pool))
+			" ", extra, " taken_pct=%d mp_lyra=%d mp_teo=%d" % [roundi(100.0 * stats.taken / pool), actors.lyra.mp, actors.teo.mp])
 		if "--auto-return" in OS.get_cmdline_user_args() and won:
 			Engine.time_scale = 1.0
 			get_tree().change_scene_to_file("res://scenes/main.tscn")
 			return
 		get_tree().quit()
 		return
+	if won:
+		# o último toque se apaga, um silêncio, e só então o jingle contido
+		await _wait(AudioRules.wait_left(t - fell_at, AudioRules.LAST_TOLL + AudioRules.SILENCE))
+		Audio.sfx("vitoria")
 	_show_result(won)
 
 func _show_result(won: bool) -> void:
@@ -1125,6 +1378,12 @@ func _show_result(won: bool) -> void:
 	var sub := UI.label("O sino de Valmor se calou." if won else "Os mortos ainda ouvem o sino.")
 	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(sub)
+	var first := 2
+	if won:                                  # o Sineiro não paga: a linha só mostra as moedas da bolsa
+		var cr := UI.coins_row(Game.gold)
+		cr.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+		v.add_child(cr)
+		first = 3
 	var retry := func():
 		Game.tries += 1
 		Game.heal_all()
@@ -1137,12 +1396,13 @@ func _show_result(won: bool) -> void:
 		b.custom_minimum_size = Vector2(180, UI.ROW_TOUCH)     # 180x44 em todo aparelho (layout-designer 4.6)
 		b.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 		v.add_child(b)
-	v.get_child(2).grab_focus.call_deferred()
+	v.get_child(first).grab_focus.call_deferred()
 
 ## Tela parada do túmulo vazio: a arena escurece e o grupo olha o nicho; depois, a volta para a Valmor.
 func _tomb() -> void:
 	create_tween().tween_property(mod, "color", DIM.lerp(NORMAL_TINT, 0.35), 0.8)
 	turn_ring.hide()
+	boss_ring.hide()
 	forecast.hide()
 	await _wait(0.9)
 	await _talk("tumulo_vazio")
@@ -1155,8 +1415,9 @@ func _process(delta: float) -> void:
 	top_panel.visible = log_label.text != ""
 	hud_layer.visible = not Dialogue.open
 	_place_menu()
-	if turn_ring.visible:
-		turn_ring.scale = Vector2.ONE * (1.0 + sin(t * 6.0) * 0.06)
+	for r in [turn_ring, boss_ring, target_ring]:
+		if r.visible:
+			r.scale = Vector2.ONE * (1.0 + sin(t * 6.0) * 0.06)
 	if not shot_times.is_empty():
 		if demo_t0 >= 0.0 and shot_idx < shot_times.size() and t - demo_t0 >= shot_times[shot_idx]:
 			get_viewport().get_texture().get_image().save_png(shot_path.replace(".png", "_%d.png" % shot_idx))

@@ -15,9 +15,9 @@ const KEYS := {
 const UI_ALIAS := {"ui_accept": "confirm", "ui_cancel": "cancel"}
 # Rótulo de cada ação em cada aparelho, para as dicas na tela ("E: entrar", "A: entrar").
 const PROMPTS := {
-	"keys": {"confirm": "E", "cancel": "Esc", "menu": "Tab", "move": "WASD ou setas", "fullscreen": "F11", "hold": "E"},
-	"pad": {"confirm": "A", "cancel": "B", "menu": "Start", "move": "Analógico", "hold": "A"},
-	"touch": {"confirm": "A", "cancel": "B", "menu": "Menu", "move": "Círculo", "hold": "o dedo na tela"},
+	"keys": {"confirm": "E", "cancel": "Esc", "menu": "Tab", "move": "WASD ou setas", "fullscreen": "F11", "hold": "E", "tap": "aperte E"},
+	"pad": {"confirm": "A", "cancel": "B", "menu": "Start", "move": "Analógico", "hold": "A", "tap": "aperte A"},
+	"touch": {"confirm": "A", "cancel": "B", "menu": "Menu", "move": "Círculo", "hold": "o dedo na tela", "tap": "toque na tela"},
 }
 const PAD_BUTTONS := {
 	"move_left": [JOY_BUTTON_DPAD_LEFT], "move_right": [JOY_BUTTON_DPAD_RIGHT],
@@ -34,6 +34,7 @@ var is_touch := false
 var forced := false                  # --touch ou ?touch=1: mantém a interface de toque mesmo com teclado
 var pad := false                     # o último comando veio de um controle
 var fingers := {}                    # dedos encostados na tela agora (índice -> true)
+var heard_ms := -1                   # primeiro aperto desde listen_press() (ms de Time.get_ticks_msec), -1 se nenhum
 
 ## O vetor de maior força vence (teclado, controle ou joystick virtual), com tamanho no máximo 1.
 static func combine(a: Vector2, b: Vector2) -> Vector2:
@@ -67,12 +68,28 @@ static func nearest(centers: Array, pos: Vector2, reach: float) -> int:
 			best = i
 	return best
 
+## Toque em modo diálogo (Voltar redondo, tocar na tela avança) só com a fala aberta e o jogo andando. Com a pausa
+## por cima, a fala espera congelada e o toque é da pausa (o Voltar redondo caía sobre a linha "Sair").
+static func dialogue_mode(open: bool, paused: bool) -> bool:
+	return open and not paused
+
 ## "Segurar" (carga do golpe): o botão de confirmar ou, no toque, qualquer dedo na tela.
 static func holding(pressed: bool, touch: bool, finger_count: int) -> bool:
 	return pressed or (touch and finger_count > 0)
 
 func confirm_held() -> bool:
 	return holding(Input.is_action_pressed("confirm"), is_touch, fingers.size())
+
+## Ação no tempo certo: começa a ouvir. Só o primeiro aperto conta (confirm ou, no toque, qualquer dedo),
+## para não valer apertar sem parar.
+func listen_press() -> void:
+	heard_ms = -1
+
+func _heard(e: InputEvent) -> void:
+	var tap: bool = e is InputEventScreenTouch and e.pressed
+	tap = tap or (forced and e is InputEventMouseButton and e.button_index == MOUSE_BUTTON_LEFT and e.pressed)
+	if heard_ms < 0 and (tap or (e.is_action_pressed("confirm") and not e.is_echo())):
+		heard_ms = Time.get_ticks_msec()
 
 func toggle_fullscreen() -> void:
 	var full := DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_FULLSCREEN
@@ -118,6 +135,7 @@ func move_vector() -> Vector2:
 
 func _input(e: InputEvent) -> void:
 	# a interface de toque aparece no primeiro toque e some quando o jogador usa teclado ou controle
+	_heard(e)
 	var before := mode()
 	var now := is_touch
 	if e is InputEventScreenTouch:

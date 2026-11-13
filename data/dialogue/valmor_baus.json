@@ -1,0 +1,26 @@
+{
+  "scene": "valmor_baus",
+  "lines": [
+    {"id": "poco", "speaker": "narrador", "text": "Um baú encostado no poço, com neve na tampa. Dentro, uma Poção."},
+    {"id": "poco_antes", "speaker": "andilla", "text": "Baú sem tranca, no meio da praça. Esta vila confia demais.",
+     "if": ["!flag:sineiro_morto"], "next": "end"},
+    {"id": "poco_depois", "speaker": "teo", "text": "Alguém deixou isto para quem precisasse. Obrigado, seja quem for.",
+     "next": "end"},
+
+    {"id": "poco_vazio", "speaker": "narrador", "text": "O baú do poço está vazio. A neve já cobre o fundo.",
+     "if": ["!flag:sineiro_morto"], "next": "end"},
+    {"id": "poco_vazio_depois", "speaker": "narrador", "text": "O baú do poço está vazio. Na praça, só neve e silêncio.",
+     "next": "end"},
+
+    {"id": "quintal", "speaker": "narrador", "text": "No alto da estrada, ao pé do poste, um baú meio coberto de neve. Dentro, vinte e cinco moedas."},
+    {"id": "quintal_antes", "speaker": "lyra", "expr": "alegre", "text": "Teia na fechadura. Ninguém abre isto há anos. A gente gasta na Dora e fica tudo na vila.",
+     "if": ["!flag:sineiro_morto"], "next": "end"},
+    {"id": "quintal_depois", "speaker": "andilla", "expr": "alegre", "text": "Vinte e cinco moedas por uma noite dessas. Já fui mais bem paga.",
+     "next": "end"},
+
+    {"id": "quintal_vazio", "speaker": "narrador", "text": "O baú ao pé do poste está vazio. O lampião balança com o vento.",
+     "if": ["!flag:sineiro_morto"], "next": "end"},
+    {"id": "quintal_vazio_depois", "speaker": "narrador", "text": "O baú ao pé do poste está vazio. Lá no alto, a torre está quieta.",
+     "next": "end"}
+  ]
+}

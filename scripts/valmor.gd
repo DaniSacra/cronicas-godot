@@ -1,23 +1,19 @@
 extends Node2D
 ## Fatia vertical: Valmor à noite. Luz colorida sobre pixel art, grupo que segue o líder, neve e vinheta.
 ## Controles pelo autoload Controls (andar, confirm; F11 tela cheia fica no próprio Controls).
-## Falas pelo autoload Dialogue: abertura ao chegar, exame (confirm longe da porta), porta da igreja velha, volta
-## depois da vitória e cartão final. Com o diálogo aberto o grupo não anda e o confirm não vale para a cena.
+## Falas pelo autoload Dialogue: abertura ao chegar, exame (confirm longe de tudo), porta da igreja velha, moradores,
+## volta depois da vitória e, depois de ver o Tobias, o cartão final. Com o diálogo aberto o grupo não anda e o confirm
+## não vale para a cena. Onde fica cada coisa e o que responde ao confirm: ValmorRules.
 
 const HEROES := ["aldo", "lyra", "teo", "andilla"]
 const SPEED := 105.0
 const TRAIL_GAP := 24            # pontos da trilha (cerca de 1 px cada) entre um herói e o próximo
 const NIGHT := Color(0.30, 0.36, 0.62)
 const BACKDROP := "res://assets/valmor_night.png"
-const CROP := Rect2(98, 55, 444, 249)   # a arte útil dentro da imagem gerada (sem a borda roxa)
-const ZOOM := 3.0                       # escala inteira do cenário
-const BLOCKERS := [                     # casas e árvores, em pixels da imagem gerada
-	Rect2(200, 80, 105, 122), Rect2(122, 135, 95, 90), Rect2(295, 98, 68, 66), Rect2(405, 140, 122, 100),
-	Rect2(100, 228, 92, 80), Rect2(190, 256, 150, 50), Rect2(98, 55, 36, 250), Rect2(98, 55, 110, 82),
-	Rect2(448, 55, 94, 88), Rect2(500, 55, 42, 250)]
-const WALK := Rect2(130, 140, 380, 160)
-const HOTSPOT := Vector2(295, 232)      # a porta da igreja velha (a descida para a cripta), em pixels da imagem gerada
-const HOTSPOT_RANGE := 34.0
+const V := preload("res://scripts/valmor_rules.gd")
+const CROP := V.CROP
+const ZOOM := V.ZOOM
+const CHEST_SCALE := 2.0
 const LIGHTS_FILE := "res://scripts/valmor_lights.json"
 const HINT_TIME := 6.0                  # a dica de controles some depois disso ou no primeiro passo
 
@@ -40,6 +36,15 @@ var hint: Label
 var hint_tw: Tween
 var walked := false
 var snow: CPUParticles2D
+var step_clock := 0.0            # passo na neve: só o líder faz som (a fila inteira vira barulho)
+var last_step := -1
+var chests := {}                 # id do baú -> Sprite2D
+var shop: CanvasLayer
+var toast: PanelContainer
+var toast_tw: Tween
+var busy := false                # na loja da Dora (falas, menu e a loja em si): o grupo não anda
+var shop_pick := ""
+var npcs := {}                   # id do morador -> Sprite2D (provisório)
 
 func _ready() -> void:
 	RenderingServer.set_default_clear_color(Color(0.02, 0.03, 0.07))
@@ -61,7 +66,7 @@ func _ready() -> void:
 	add_child(bg)
 
 	_load_lights()
-	_spawn_party(Game.return_pos if Game.return_pos != Vector2.ZERO else _w(Vector2(345, 262)))
+	_spawn_party(V.spawn(Game.return_pos))     # posição salva que caia em parede ou fora do mapa volta ao começo
 	_add_camera()
 	_add_snow()
 	_add_vignette()
@@ -73,8 +78,21 @@ func _ready() -> void:
 	_apply_budget()
 	add_child(load("res://scripts/touch_controls.gd").new())
 	add_child(load("res://scripts/pause_menu.gd").new())
+	shop = load("res://scripts/shop.gd").new()
+	add_child(shop)
+	Dialogue.event.connect(_on_dialogue_event)
+	_add_chests()
+	_add_npcs()
+	_add_toast()
 	for m in party:
 		Dialogue.register_actor(m.name, m.root)
+	# a valsa e o vento (vindos do título, seguem sem recomeçar); na volta da luta, a valsa só depois de um silêncio
+	Audio.music("valmor_noite", AudioRules.XFADE, 1.5 if Game.flags.get("sineiro_morto", false) else 0.0)
+	Audio.amb("valmor_vento")
+
+	Game.leader_pos = func(): return party[0].root.position
+	if Game.started:
+		Save.write.call_deferred()          # autosave ao entrar na Valmor (início, Continuar e volta da luta)
 
 	var args := OS.get_cmdline_user_args()
 	for a in args:
@@ -85,22 +103,19 @@ func _ready() -> void:
 		if a.begins_with("--postshot=") and Game.flags.get("sineiro_morto", false):
 			shot_path = a.substr(11)
 	if "--dev-battle" in args and not Game.flags.get("sineiro_morto", false):   # atalho de desenvolvimento
-		party[0].root.position = _w(HOTSPOT)
+		party[0].root.position = _w(V.CHURCH)
 		get_tree().create_timer(0.6).timeout.connect(_start_battle)
 	elif not Game.flags.get("abertura_vista", false) and not Game.skip_intro():
 		_talk("abertura")
 
-func _w(img: Vector2) -> Vector2:   # pixel da imagem gerada -> mundo
-	return (img - CROP.position) * ZOOM
+func _exit_tree() -> void:
+	Game.leader_pos = Callable()        # fora da Valmor o save usa a posição de volta
 
-func _blocked(world_pos: Vector2) -> bool:
-	var ip := world_pos / ZOOM + CROP.position
-	if not WALK.has_point(ip):
-		return true
-	for r in BLOCKERS:
-		if r.has_point(ip):
-			return true
-	return false
+func _w(img: Vector2) -> Vector2:   # pixel da imagem gerada -> mundo
+	return V.to_world(img)
+
+func _blocked(world_pos: Vector2) -> bool:   # baús e moradores são sólidos: o líder para do lado, não em cima
+	return V.blocked(world_pos)
 
 # ---------- luzes ----------
 
@@ -157,11 +172,8 @@ func _add_camera() -> void:
 	add_child(cam)
 
 func _add_hotspot() -> void:
-	var pos := _w(HOTSPOT)
-	mark = UI.label("!", 24, Color("#ffe080"), 3)
-	mark.position = pos + Vector2(-3, -52)
+	mark = UI.label("!", 24, Color("#ffe080"), 3)     # na porta até a vitória, depois no Tobias (ValmorRules.mark_at)
 	mark.z_index = 70
-	mark.visible = not Game.flags.get("sineiro_morto", false)
 	world.add_child(mark)
 	prompt = UI.label()
 	prompt.z_index = 70
@@ -180,29 +192,176 @@ func _add_hotspot() -> void:
 		Game.flags["voltou"] = true
 		get_tree().create_timer(0.9).timeout.connect(func(): _talk("valmor_volta"))
 
-func _near_hotspot() -> bool:
-	return not Game.flags.get("sineiro_morto", false) and party[0].root.position.distance_to(_w(HOTSPOT)) < HOTSPOT_RANGE
+## O ponto mais perto do líder dentro do alcance (porta, baú ou morador), ou {}.
+func _near() -> Dictionary:
+	return V.nearest(V.spots(Game.flags, Game.opened), V.to_img(party[0].root.position))
 
-## Uma conversa; enquanto ela dura a dica some. A porta leva à luta; o exame, depois das quatro falas da volta,
-## leva ao cartão final.
+func _interact() -> void:
+	var sp := _near()
+	match sp.get("kind", ""):
+		"door": _talk("igreja_velha")
+		"chest": _open_chest(sp.id)
+		"npc": _talk_npc(sp.id)
+		_: _talk("valmor_exame")
+
+## Morador: vira para o líder e toca a cena dele (ela mesma escolhe antes, depois e repetição pelas flags
+## falou_<id>_*). As flags vão para o save na hora. O Tobias, visto depois do Sineiro, fecha a fatia.
+func _talk_npc(id: String) -> void:
+	if id == "dora":
+		_visit_dora()
+		return
+	_face_npc(id)
+	await _talk(V.NPCS[id].scene)
+	if id == "tobias" and V.ending_ready(Game.flags):
+		leaving = true
+		await Dialogue.play("fim_fatia")
+		Save.write()
+		Game.goto(Game.TITLE, true)
+
+func _face_npc(id: String) -> void:
+	var n: Dictionary = V.NPCS[id]
+	if not n.has("lying"):
+		npcs[id].texture = load("res://assets/heroes/%s/rot_%s.png" % [n.base, V.face_toward(_w(n.at), party[0].root.position)])
+
+## Moradores provisórios: o quadro parado de um herói em silhueta tingida (Fx.stand_in_material), com sombra, sem
+## luz nova (o orçamento do celular fica igual). O Tobias fica deitado numa esteira na porta da capela.
+func _add_npcs() -> void:
+	for id in V.NPCS:
+		var n: Dictionary = V.NPCS[id]
+		var lying: bool = n.has("lying")
+		var root := Node2D.new()
+		root.position = _w(n.at)
+		var sh := Sprite2D.new()
+		sh.texture = Fx.shadow_texture()
+		sh.scale = Vector2(1.1, 0.3) if lying else Vector2(0.5, 0.2)
+		sh.z_index = -1
+		root.add_child(sh)
+		if lying:
+			var cot := ColorRect.new()           # a esteira
+			cot.color = Color("#a08a68")
+			cot.size = Vector2(80, 18)
+			cot.position = Vector2(-40, -16)
+			root.add_child(cot)
+		var sp := Sprite2D.new()
+		sp.texture = load("res://assets/heroes/%s/rot_south.png" % n.base)
+		sp.material = Fx.stand_in_material(Color(n.tint))
+		sp.centered = false
+		sp.offset = Fx.IDLE_OFFSET
+		sp.scale = Vector2.ONE * n.get("scale", 1.0)
+		if lying:                            # deitado de lado, a cabeça para a esquerda
+			sp.rotation = -PI / 2.0
+			sp.position = Vector2(33, -4)
+		root.add_child(sp)
+		world.add_child(root)
+		npcs[id] = sp
+		Dialogue.register_actor(id, root)
+
+## A Dora: saudação, o menu Comprar, Vender, Sair (escolhas do diálogo) e a despedida ao sair.
+func _visit_dora() -> void:
+	busy = true
+	hint.modulate.a = 0.0
+	await Dialogue.play("loja_dora")
+	shop_pick = ""
+	await Dialogue.play("loja_dora_menu")       # devolve pelo evento loja_comprar, loja_vender ou loja_sair
+	if shop_pick in ["loja_comprar", "loja_vender"]:
+		shop.open(shop_pick == "loja_vender", _leave_dora)
+	else:
+		_leave_dora()
+
+func _leave_dora() -> void:
+	await Dialogue.play("loja_dora", "despedida")
+	busy = false
+
+func _on_dialogue_event(name: String) -> void:
+	if name.begins_with("loja_"):
+		shop_pick = name
+
+# ---------- baús e aviso do que foi achado ----------
+
+func _add_chests() -> void:
+	for c in V.CHEST_AT:
+		var sp := Sprite2D.new()
+		sp.texture = UI.icon("chest_open" if c in Game.opened else "chest")
+		sp.scale = Vector2(CHEST_SCALE, CHEST_SCALE)
+		sp.offset = Vector2(0, -7)
+		sp.position = _w(V.CHEST_AT[c])
+		world.add_child(sp)
+		chests[c] = sp
+
+## Abre uma vez (EconomyRules.open_chest), troca o desenho, mostra o que veio com as moedas e toca a fala do baú
+## (data/dialogue/valmor_baus.json: "poco", "quintal" e as de baú vazio).
+func _open_chest(id: String) -> void:
+	var from: String = id.split(":")[1]
+	var st := Game.purse()
+	var got := EconomyRules.open_chest(Game.opened, st, id)
+	if got.is_empty():
+		_talk_from("valmor_baus", from + "_vazio")
+		return
+	Game.set_purse(st)
+	chests[id].texture = UI.icon("chest_open")
+	chests[id].modulate = Color.WHITE
+	Audio.sfx("cura")                   # provisório: não há som de baú
+	_show_toast("Achou moedas:" if got.has("gold") else "Achou: %s." % EconomyRules.loot_text(got), int(got.get("gold", 0)))
+	Save.write()
+	_talk_from("valmor_baus", from)
+
+func _talk_from(scene: String, from: String) -> void:
+	hint.modulate.a = 0.0
+	await Dialogue.play(scene, from)
+
+func _add_toast() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 12
+	add_child(layer)
+	toast = PanelContainer.new()
+	var st := UI.panel_style()
+	st.set_content_margin_all(6)
+	toast.add_theme_stylebox_override("panel", st)
+	toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	toast.add_child(row)
+	row.add_child(UI.label())
+	var plus := UI.num_label("", 8, Color("#ffe080"))      # "+25" na fonte de números, como os outros números
+	plus.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	row.add_child(plus)
+	row.add_child(UI.coins_row())
+	toast.modulate.a = 0.0
+	layer.add_child(toast)
+
+func _show_toast(text: String, plus := 0) -> void:
+	var row := toast.get_child(0)
+	(row.get_child(0) as Label).text = text
+	(row.get_child(1) as Label).text = "+%d" % plus
+	row.get_child(1).visible = plus > 0
+	UI.set_coins(row.get_child(2), Game.gold)
+	toast.reset_size()
+	var safe := UI.safe_rect(get_viewport())
+	toast.position = Vector2(roundf(safe.position.x + (safe.size.x - toast.size.x) / 2.0), safe.position.y + 24)
+	if toast_tw != null:
+		toast_tw.kill()
+	toast.modulate.a = 1.0
+	toast_tw = create_tween()
+	toast_tw.tween_interval(2.4)
+	toast_tw.tween_property(toast, "modulate:a", 0.0, 0.5)
+
+## Uma conversa; enquanto ela dura a dica some. Grava ao fim (as flags da fala). A porta leva à luta.
 func _talk(scene: String) -> void:
 	hint.modulate.a = 0.0
 	var ev := await Dialogue.play(scene)
+	if Game.started:
+		Save.write()                    # a abertura (e cada fala) fica gravada: uma queda logo depois não a repete
 	if not walked:
 		_show_hint()
 	if "battle:sineiro" in ev:
 		_start_battle()
-	elif scene == "valmor_exame" and _all_heard() and not Game.flags.get("fatia_concluida", false):
-		await Dialogue.play("fim_fatia")
-		leaving = true
-		Game.goto(Game.TITLE, true)
-
-func _all_heard() -> bool:
-	return HEROES.all(func(h): return Game.flags.get("exame_depois_" + h, false))
 
 func _start_battle() -> void:
 	leaving = true
 	Game.return_pos = party[0].root.position
+	Audio.sfx("descer_cripta")          # laje arrastando e passos descendo: a música e o vento somem com o fade
+	Audio.music_stop(0.5)
+	Audio.amb_stop(0.5)
 	var tw := create_tween()
 	tw.tween_property(fade, "color:a", 1.0, 0.5)
 	await tw.finished
@@ -302,7 +461,6 @@ func _refresh_prompts() -> void:
 		"touch": hint.text = "Arraste o círculo para andar    %s: falar" % c
 		"pad": hint.text = "Analógico: andar    %s: falar" % c
 		_: hint.text = "%s: andar    %s: falar    %s: tela cheia" % [Controls.prompt("move"), c, Controls.prompt("fullscreen")]
-	prompt.text = "%s: entrar na igreja velha" % c
 	_show_hint()
 
 # ---------- laço principal ----------
@@ -315,28 +473,43 @@ func _process(delta: float) -> void:
 
 	var dir := Controls.move_vector()
 	moving = dir.length() > 0.1
-	if Dialogue.is_open():
+	if Dialogue.is_open() or busy:
 		dir = Vector2.ZERO
 		moving = false
-	elif Input.is_action_just_pressed("confirm") and not leaving:
-		_talk("igreja_velha" if _near_hotspot() else "valmor_exame")
-	if mark != null and mark.visible:
-		mark.position.y = _w(HOTSPOT).y - 52 + sin(t * 4.0) * 2.0
-		var near := _near_hotspot() and not Dialogue.is_open()
-		prompt.visible = near
-		prompt.position = _w(HOTSPOT) + Vector2(-prompt.get_minimum_size().x / 2.0, -72).round()
+	elif Input.is_action_just_pressed("confirm") and not leaving and Engine.get_process_frames() != Game.ui_closed_frame:
+		_interact()
+	var mk := V.mark_at(Game.flags)
+	mark.visible = mk != Vector2.ZERO and not leaving
+	if mark.visible:
+		mark.position = _w(mk) + Vector2(-3, -52 + sin(t * 4.0) * 2.0)
+	var near := _near() if not Dialogue.is_open() and not leaving and not busy else {}
+	prompt.visible = not near.is_empty()
+	if prompt.visible:
+		prompt.text = "%s: %s" % [Controls.prompt("confirm"), near.verb]
+		prompt.position = _w(near.at) + Vector2(-prompt.get_minimum_size().x / 2.0, -72 if near.kind == "door" else -80).round()
+	for c in chests:                    # baú fechado brilha de leve (sem luz nova: o orçamento do celular fica igual)
+		if not c in Game.opened:
+			chests[c].modulate = Color(1.9, 1.75, 1.4) * (1.0 + 0.25 * sin(t * 3.0 + chests[c].position.x))
 	if leaving:
 		moving = false
 		return
 	var leader: Node2D = party[0].root
+	if not moving:
+		step_clock = AudioRules.STEP_GAP * 0.6     # o primeiro passo soa logo que ele começa a andar
 	if moving and not walked:
 		walked = true
 		_hide_hint()
 	if moving:
 		var step_v := dir * SPEED * delta
+		var from := leader.position
 		for axis in [Vector2(step_v.x, 0), Vector2(0, step_v.y)]:   # desliza junto às paredes
 			if not _blocked(leader.position + axis):
 				leader.position += axis
+		step_clock += delta
+		if step_clock >= AudioRules.STEP_GAP and leader.position != from:   # parado na parede não faz passo
+			step_clock = 0.0
+			last_step = AudioRules.step_pick(last_step, randf())
+			Audio.sfx(AudioRules.STEPS[last_step], 0.0, randf_range(0.95, 1.05))
 		if absf(dir.x) > absf(dir.y):
 			facing = "east" if dir.x > 0 else "west"
 		else:
